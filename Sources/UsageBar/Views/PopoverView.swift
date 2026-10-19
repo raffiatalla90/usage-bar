@@ -50,10 +50,6 @@ struct PopoverView: View {
     /// static labels instead so the layout can be inspected.
     var interactive: Bool = true
     @State private var now = Date()
-    /// Result of the last "Simpan gambar promo" action, shown in the footer so the click has
-    /// a visible effect inside the panel.
-    @State private var shotPath: String?
-    @State private var shotFailed = false
     @AppStorage("usagebar.measure") private var measureRaw = Measure.tokens.rawValue
     /// Which page the popover shows. Persisted so reopening lands where you left off.
     @AppStorage("usagebar.page") private var pageRaw = Page.usage.rawValue
@@ -462,36 +458,7 @@ struct PopoverView: View {
     // MARK: footer
 
     private var footer: some View {
-        VStack(spacing: 0) {
-            if let path = shotPath {
-                shotBanner(path: path, ok: true)
-            } else if shotFailed {
-                shotBanner(path: nil, ok: false)
-            }
-            footerRow
-        }
-    }
-
-    /// The save happens behind a transient popover, so the confirmation has to live here —
-    /// a Finder window would dismiss the panel before the user could see it.
-    private func shotBanner(path: String?, ok: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 9))
-                .foregroundStyle(ok ? Palette.jade : Palette.coral)
-            Text(ok ? "Tersimpan: \(path ?? "") · path disalin" : "Gagal menyimpan gambar")
-                .font(.system(size: 9))
-                .foregroundStyle(Color.white.opacity(0.75))
-                .lineLimit(2)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(Palette.card)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
-        }
+        footerRow
     }
 
     private var footerRow: some View {
@@ -505,15 +472,6 @@ struct PopoverView: View {
                     .foregroundStyle(Palette.slate)
             }
             Spacer()
-            Button { saveShot() } label: {
-                Image(systemName: "camera")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 18)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.10)))
-            }
-            .buttonStyle(.plain)
-            .help("Simpan gambar promo")
             if interactive {
                 Menu {
                     Button("Refresh now") { Task { await store.refresh() } }
@@ -560,33 +518,6 @@ struct PopoverView: View {
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
-    }
-
-    /// Writes the hero shot and reports the result inline. Relying on Finder to reveal it was
-    /// unreliable: this app is an `.accessory` process behind a transient popover, so activating
-    /// Finder could close the popover before anything visibly happened.
-    private func saveShot() {
-        let data = MarketingShotExporter.data(from: store)
-        let path = MarketingShotExporter.save(data, caption: "Pantau tanpa buka.")
-        // App is a UIElement bundle with no console; a log line is the only way to tell
-        // "clicked and failed" apart from "never clicked" after the fact.
-        let log = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/UsageBar.log")
-        let line = "\(Date()) saveShot -> \(path ?? "FAILED")\n"
-        if let h = try? FileHandle(forWritingTo: log) {
-            h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
-        } else {
-            try? line.write(to: log, atomically: true, encoding: .utf8)
-        }
-        if let path {
-            shotPath = path
-            shotFailed = false
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(path, forType: .string)
-        } else {
-            shotPath = nil
-            shotFailed = true
-        }
     }
 
     private var nextUpdateText: String {

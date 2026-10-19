@@ -41,32 +41,6 @@ if args.contains("--render-notch") {
     MainActor.assumeIsolated { Renderer.renderNotch(to: path) }
 }
 
-if args.contains("--render-shot") {
-    let path = args.drop(while: { $0 != "--render-shot" }).dropFirst().first ?? "/tmp/usagebar-shot.png"
-    let caption = args.drop(while: { $0 != "--caption" }).dropFirst().first ?? "Pantau tanpa buka."
-    MainActor.assumeIsolated { Renderer.renderShot(to: path, caption: caption) }
-}
-
-if args.contains("--save-shot") {
-    MainActor.assumeIsolated {
-        let store = UsageStore()
-        var done = false
-        Task { @MainActor in
-            store.range = .last30
-            await store.refresh()
-            let data = MarketingShotExporter.data(from: store)
-            if let p = MarketingShotExporter.save(data, caption: "Pantau tanpa buka.") {
-                print("saved \(p)")
-            } else {
-                print("save failed")
-            }
-            done = true
-        }
-        while !done { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
-        exit(0)
-    }
-}
-
 if args.contains("--render") {
     let path = args.drop(while: { $0 != "--render" }).dropFirst().first ?? "/tmp/usagebar.png"
     let rangeArg = args.drop(while: { $0 != "--dump" }).dropFirst().first
