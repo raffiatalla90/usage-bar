@@ -173,14 +173,14 @@ public final class UsageStore: ObservableObject {
         if let week = a.weeklyRemaining {
             rows.append(QuotaRow(
                 title: "Kuota mingguan",
-                valueText: "Sisa \(Int((week * 100).rounded()))%",
+                valueText: "Tersisa \(Int((week * 100).rounded()))%",
                 detail: resetsText(a.weeklyResetsAt, prefix: "pulih dalam"),
                 remaining: week))
         }
         if let month = a.monthlyRemaining {
             rows.append(QuotaRow(
                 title: "Kuota bulanan",
-                valueText: "Sisa \(Int((month * 100).rounded()))%",
+                valueText: "Tersisa \(Int((month * 100).rounded()))%",
                 detail: resetsText(a.monthlyResetsAt, prefix: "pulih dalam"),
                 remaining: month))
         }
@@ -189,7 +189,7 @@ public final class UsageStore: ObservableObject {
             let left = max(0, limit - used)
             rows.append(QuotaRow(
                 title: "Pencarian web",
-                valueText: "Sisa \(left) dari \(limit)",
+                valueText: "Tersisa \(left) dari \(limit)",
                 detail: "pulih setiap hari 07.00 WIB",
                 remaining: Double(left) / Double(max(1, limit))))
         }
@@ -236,13 +236,10 @@ public final class UsageStore: ObservableObject {
         // Quota windows exist even with no traffic in the selected range, so they win.
         guard let r = claudeReport, r.totals.requests > 0 else {
             var rows: [QuotaRow] = claudeQuota.windows.map { w in
-                // Claude Code's own `/usage` reports *used*, so show used too — a "Sisa 4%"
-                // next to the CLI's "98% used" reads like the two windows are swapped.
-                let used = 1 - w.remaining
-                return QuotaRow(title: w.label,
-                                valueText: "Terpakai \(Int((used * 100).rounded()))%",
-                                detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
-                                remaining: used)
+                QuotaRow(title: w.label,
+                         valueText: "Tersisa \(Int((w.remaining * 100).rounded()))%",
+                         detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
+                         remaining: w.remaining)
             }
             if rows.isEmpty {
                 rows = [
@@ -265,12 +262,11 @@ public final class UsageStore: ObservableObject {
         // unreachable (expired OAuth), so the card never goes blank.
         var rows: [QuotaRow] = []
         for w in claudeQuota.windows {
-            let used = 1 - w.remaining
             rows.append(QuotaRow(
                 title: w.label,
-                valueText: "Terpakai \(Int((used * 100).rounded()))%",
+                valueText: "Tersisa \(Int((w.remaining * 100).rounded()))%",
                 detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
-                remaining: used))
+                remaining: w.remaining))
         }
         if rows.isEmpty {
             // No quota windows: say so instead of substituting token counts — the card is
