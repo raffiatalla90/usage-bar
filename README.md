@@ -72,8 +72,10 @@ out its content) and `Menu` (label is not rasterised), so `PopoverView` has `scr
 
 ## Promo shot
 
-Menu → **Simpan gambar promo…** writes a 944×2048 hero image to `~/Pictures/UsageBar/` and
-reveals it in Finder. Same artwork from the CLI:
+Footer camera button (or `--render-shot` / `--save-shot` from the CLI) writes a 944×2048 hero
+image to `~/Pictures/UsageBar/`, copies the path to the clipboard, and shows a green/red
+confirmation strip in the footer — a Finder reveal used to dismiss the transient popover before
+anything was visible. Each save also appends a line to `~/Library/Logs/UsageBar.log`.
 
 ```bash
 .build/release/UsageBar --render-shot /tmp/shot.png --caption "Out of sight."
