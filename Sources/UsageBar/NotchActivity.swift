@@ -24,31 +24,64 @@ final class ActivityWatcher: ObservableObject {
     @Published var filter: Filter = .all
 
     private var timer: Timer?
-    private let window: TimeInterval = 6 * 3600
+    private var scanning = false
+    private let cache = ActivityFeed.ActivityCache()
+    /// Multi-day retention: rows outlive midnight and only age out of this window.
+    /// Nothing here prunes by calendar day — a file changed yesterday is still listed
+    /// today, under its own day header.
+    private let window: TimeInterval = 14 * 86400
+    private let limit = 400
 
     func start() {
-        refresh()
+        refreshSync()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
         RunLoop.main.add(timer!, forMode: .common)
     }
 
+    /// Background scan: a 14-day window reads ~90 session logs, so parsing it on the main
+    /// thread every 2 s would stutter the panel. The cache makes repeat scans near-free.
     func refresh() {
-        let found = ActivityFeed.recent(since: Date().addingTimeInterval(-window), limit: 40)
-        // Collapse repeats: three edits to one file is one row with a ×3 badge, not three rows.
-        var order: [String] = []
-        var byPath: [String: CodeActivity] = [:]
-        for item in found {
-            if var kept = byPath[item.path] {
-                kept.hits += 1
-                byPath[item.path] = kept
-            } else {
-                byPath[item.path] = item
-                order.append(item.path)
+        guard !scanning else { return }
+        scanning = true
+        let since = Date().addingTimeInterval(-window)
+        let limit = self.limit
+        let cache = self.cache
+        Task.detached(priority: .utility) {
+            let found = ActivityFeed.recent(since: since, limit: limit, cache: cache)
+            await MainActor.run {
+                self.apply(found)
+                self.scanning = false
             }
         }
-        let merged = order.compactMap { byPath[$0] }
+    }
+
+    /// Inline scan for the renderer and for the moment the panel opens.
+    func refreshSync() {
+        apply(ActivityFeed.recent(since: Date().addingTimeInterval(-window),
+                                  limit: limit, cache: cache))
+    }
+
+    private func apply(_ found: [CodeActivity]) {
+        // Collapse repeats per day: three edits to one file today is one row with a ×3 badge,
+        // but the same file touched yesterday keeps its own row under yesterday's header.
+        // The day key is a local calendar day, not `epoch/86400` — WIB is UTC+7, so a UTC
+        // boundary would file 03:00 today under yesterday.
+        var order: [String] = []
+        var byKey: [String: CodeActivity] = [:]
+        for item in found {
+            let day = Calendar.current.startOfDay(for: item.date).timeIntervalSince1970
+            let key = "\(Int(day))-\(item.path)"
+            if var kept = byKey[key] {
+                kept.hits += 1
+                byKey[key] = kept
+            } else {
+                byKey[key] = item
+                order.append(key)
+            }
+        }
+        let merged = order.compactMap { byKey[$0] }
         if merged.map(\.id) != all.map(\.id) || merged.map(\.hits) != all.map(\.hits) { all = merged }
         lastChange = all.first?.date
     }
@@ -84,6 +117,41 @@ final class ActivityWatcher: ObservableObject {
             buckets[key, default: []].append(item)
         }
         return order.map { ($0, buckets[$0] ?? []) }
+    }
+
+    /// The same rows, cut into day sections so nothing looks like it vanished at midnight:
+    /// yesterday's work keeps its own header below today's instead of scrolling out.
+    var days: [(id: String, title: String, groups: [(project: String, items: [CodeActivity])])] {
+        let cal = Calendar.current
+        var order: [Date] = []
+        var buckets: [Date: [CodeActivity]] = [:]
+        for item in items {
+            let day = cal.startOfDay(for: item.date)
+            if buckets[day] == nil { order.append(day) }
+            buckets[day, default: []].append(item)
+        }
+        return order.sorted(by: >).map { day in
+            var gOrder: [String] = []
+            var gBuckets: [String: [CodeActivity]] = [:]
+            for item in buckets[day] ?? [] {
+                let key = item.projectName.isEmpty ? "lainnya" : item.projectName
+                if gBuckets[key] == nil { gOrder.append(key) }
+                gBuckets[key, default: []].append(item)
+            }
+            return (id: ISO8601DateFormatter().string(from: day),
+                    title: Self.dayTitle(day),
+                    groups: gOrder.map { ($0, gBuckets[$0] ?? []) })
+        }
+    }
+
+    static func dayTitle(_ day: Date, now: Date = Date()) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(day) { return "hari ini" }
+        if cal.isDateInYesterday(day) { return "kemarin" }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "id_ID")
+        f.dateFormat = cal.isDate(day, equalTo: now, toGranularity: .year) ? "d MMM" : "d MMM yyyy"
+        return f.string(from: day)
     }
 }
 
@@ -133,7 +201,7 @@ final class NotchActivityController {
 
     private let contentHeight: CGFloat = 336
     private let expandedWidth: CGFloat = 420
-    private let wing: CGFloat = 64
+    private let wing: CGFloat = 74
     private var notchWidth: CGFloat = 185
     private var notchHeight: CGFloat = 34
 
@@ -245,6 +313,7 @@ final class NotchActivityController {
         print("notch: w=\(Int(notchWidth)) h=\(Int(notchHeight))")
         print("level: \(panel.level.rawValue) visible: \(panel.isVisible) onscreen: \(onScreen)")
         print("items: \(watcher.all.count)  groups: \(watcher.groups.map { "\($0.project)=\($0.items.count)" }.joined(separator: ", "))")
+        print("days: \(watcher.days.map { "\($0.title)=\($0.groups.reduce(0) { $0 + $1.items.count })" }.joined(separator: ", "))")
         toggle()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             let e = self.panel.frame
@@ -308,19 +377,21 @@ struct NotchView: View {
                         .fill(watcher.isBusy ? Ink.live : Color.white.opacity(0.22))
                         .frame(width: 5.5, height: 5.5)
                 }
-                if watcher.isBusy {
-                    Text("live")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Ink.live.opacity(0.9))
-                }
+                // Always spelled out: an idle agent used to render as a bare dot, which read
+                // like the feed had stopped working rather than like nothing was being written.
+                Text(watcher.isBusy ? "live" : "diam")
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .foregroundStyle(watcher.isBusy ? Ink.live.opacity(0.9) : Ink.faint)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 13)
 
             Color.black.frame(width: notchWidth)
 
-            HStack(spacing: 5) {
-                Text("\(watcher.all.count)")
+            HStack(spacing: 4) {
+                Text(compact(watcher.all.count))
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(Ink.text)
@@ -328,13 +399,23 @@ struct NotchView: View {
                     .font(.system(size: 9, weight: .medium, design: .rounded))
                     .foregroundStyle(Ink.faint)
             }
+            // The wing is ~74 pt wide; "162 berkas" is wider than that at these sizes, so the
+            // count used to wrap into "16" / "2". One line, allowed to shrink instead.
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .fixedSize(horizontal: true, vertical: false)
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.trailing, 13)
+            .padding(.trailing, 12)
         }
         .frame(height: notchHeight)
         .background(Color.black)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggle)
+    }
+
+    /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
+    private func compact(_ n: Int) -> String {
+        n < 1000 ? "\(n)" : String(format: "%.1fk", Double(n) / 1000)
     }
 
     // MARK: Expanded
@@ -444,23 +525,44 @@ struct NotchView: View {
     }
 
     private var groupRows: some View {
-        ForEach(watcher.groups, id: \.project) { group in
-            if watcher.groups.count > 1 {
-                HStack(spacing: 7) {
-                    Text(group.project)
-                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Ink.dim)
-                    Rectangle().fill(Ink.hairline).frame(height: 1)
-                    Text("\(group.items.count)")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Ink.faint)
+        ForEach(watcher.days, id: \.id) { day in
+            dayHeader(day.title, count: day.groups.reduce(0) { $0 + $1.items.count })
+            ForEach(day.groups, id: \.project) { group in
+                if day.groups.count > 1 {
+                    HStack(spacing: 7) {
+                        Text(group.project)
+                            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Ink.dim)
+                        Rectangle().fill(Ink.hairline).frame(height: 1)
+                        Text("\(group.items.count)")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Ink.faint)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 7)
+                    .padding(.bottom, 4)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 7)
-                .padding(.bottom, 4)
+                ForEach(group.items) { row($0) }
             }
-            ForEach(group.items) { row($0) }
         }
+    }
+
+    /// Day separator. Nothing is ever pruned at midnight — old days simply stack below,
+    /// so a change made yesterday is still on screen today.
+    private func dayHeader(_ title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title.uppercased())
+                .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                .tracking(0.6)
+                .foregroundStyle(Ink.faint)
+            Rectangle().fill(Ink.hairline).frame(height: 1)
+            Text("\(count)")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(Ink.faint)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 3)
     }
 
     private var footer: some View {
@@ -552,6 +654,7 @@ struct NotchView: View {
         let s = Int(Date().timeIntervalSince(d))
         if s < 60 { return "\(s)s" }
         if s < 3600 { return "\(s / 60)m" }
-        return "\(s / 3600)j"
+        if s < 86400 { return "\(s / 3600)j" }
+        return "\(s / 86400)h"
     }
 }

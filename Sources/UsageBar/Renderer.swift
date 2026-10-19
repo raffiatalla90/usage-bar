@@ -13,11 +13,11 @@ enum Renderer {
     /// Screen Recording permission.
     static func renderNotch(to path: String) -> Never {
         let watcher = ActivityWatcher()
-        watcher.refresh()
+        watcher.refreshSync()
         let items = watcher.items
         var images: [NSImage] = []
         for expanded in [false, true] {
-            let w = expanded ? 420.0 : 313.0
+            let w = expanded ? 420.0 : 333.0
             let h = expanded ? 368.0 : 34.0
             let probe = watcher
             let view = NotchView(watcher: probe, toggle: {}, forceExpanded: expanded,

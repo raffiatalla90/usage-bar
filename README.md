@@ -86,6 +86,8 @@ that read live local databases skip themselves when the file is absent.
 - `/usage/daily` returns no token counts; when every day costs 0 the chart falls back to
   request counts. Daily tokens come from local data only.
 - No alerts yet when spend crosses a threshold.
+- The notch activity feed keeps a rolling 14-day window and groups rows by calendar day, so
+  yesterday's changes stay listed under their own header instead of disappearing at midnight.
 - Notch panel geometry is tuned for a 185 pt notch; other Macs fall back to the popover.
 
 ## License
