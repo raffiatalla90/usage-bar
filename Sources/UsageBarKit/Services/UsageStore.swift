@@ -236,10 +236,13 @@ public final class UsageStore: ObservableObject {
         // Quota windows exist even with no traffic in the selected range, so they win.
         guard let r = claudeReport, r.totals.requests > 0 else {
             var rows: [QuotaRow] = claudeQuota.windows.map { w in
-                QuotaRow(title: w.label,
-                         valueText: "Sisa \(Int((w.remaining * 100).rounded()))%",
-                         detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
-                         remaining: w.remaining)
+                // Claude Code's own `/usage` reports *used*, so show used too — a "Sisa 4%"
+                // next to the CLI's "98% used" reads like the two windows are swapped.
+                let used = 1 - w.remaining
+                return QuotaRow(title: w.label,
+                                valueText: "Terpakai \(Int((used * 100).rounded()))%",
+                                detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
+                                remaining: used)
             }
             if rows.isEmpty {
                 rows = [
@@ -262,11 +265,12 @@ public final class UsageStore: ObservableObject {
         // unreachable (expired OAuth), so the card never goes blank.
         var rows: [QuotaRow] = []
         for w in claudeQuota.windows {
+            let used = 1 - w.remaining
             rows.append(QuotaRow(
                 title: w.label,
-                valueText: "Sisa \(Int((w.remaining * 100).rounded()))%",
+                valueText: "Terpakai \(Int((used * 100).rounded()))%",
                 detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
-                remaining: w.remaining))
+                remaining: used))
         }
         if rows.isEmpty {
             // No quota windows: say so instead of substituting token counts — the card is
