@@ -118,7 +118,7 @@ struct ToolsPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
     // MARK: headroom
@@ -176,7 +176,7 @@ struct ToolsPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
     // MARK: rtk
@@ -226,7 +226,7 @@ struct ToolsPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
     // MARK: caveman
@@ -277,7 +277,7 @@ struct ToolsPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
     private var footnote: some View {

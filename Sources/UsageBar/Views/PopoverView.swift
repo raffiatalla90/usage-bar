@@ -1,18 +1,35 @@
 import SwiftUI
 import UsageBarKit
 
-// Visual language copied from the reference panel: near-black surface, one step lighter
-// cards, capsule segmented control, thick donut with legend, quota rows with a marker,
-// sparkline per provider, pill button in the footer.
+// Minimal dark surface: near-black panel, translucent cards with a hairline border instead
+// of a lighter fill, one accent per source, tabular digits everywhere numbers move.
 enum Palette {
-    static let panel  = Color(red: 0.10, green: 0.10, blue: 0.11)
-    static let card   = Color(red: 0.16, green: 0.16, blue: 0.17)
-    static let track  = Color.white.opacity(0.10)
-    static let coral  = Color(red: 0.91, green: 0.44, blue: 0.30)
-    static let jade   = Color(red: 0.07, green: 0.64, blue: 0.48)
-    static let blue   = Color(red: 0.04, green: 0.52, blue: 1.00)
-    static let slate  = Color(red: 0.58, green: 0.58, blue: 0.61)
+    static let panel  = Color(red: 0.055, green: 0.055, blue: 0.062)
+    static let card   = Color.white.opacity(0.045)
+    static let stroke = Color.white.opacity(0.075)
+    static let track  = Color.white.opacity(0.08)
+    static let coral  = Color(red: 0.96, green: 0.45, blue: 0.34)
+    static let jade   = Color(red: 0.18, green: 0.80, blue: 0.60)
+    static let blue   = Color(red: 0.29, green: 0.56, blue: 1.00)
+    static let slate  = Color(red: 0.66, green: 0.66, blue: 0.70)
+    static let dim    = Color(red: 0.56, green: 0.56, blue: 0.60)
     static let modelColors: [Color] = [coral, jade, blue, .purple, .yellow, .pink]
+}
+
+/// One card look for the whole popover: translucent fill plus a 1 pt border, so cards read
+/// as panels rather than as raised blocks.
+struct CardSurface: ViewModifier {
+    var radius: CGFloat = 12
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: radius).fill(Palette.card))
+            .overlay(RoundedRectangle(cornerRadius: radius)
+                .strokeBorder(Palette.stroke, lineWidth: 1))
+    }
+}
+
+extension View {
+    func cardSurface(radius: CGFloat = 12) -> some View { modifier(CardSurface(radius: radius)) }
 }
 
 /// What the donut and the sparkline measure. Cost is only meaningful when something is
@@ -87,23 +104,25 @@ struct PopoverView: View {
     }
 
     private var pageTabs: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 18) {
             ForEach(Page.allCases) { p in
                 let active = page == p
-                Text(p.label)
-                    .font(.system(size: 11, weight: active ? .semibold : .medium))
-                    .foregroundStyle(active ? Color.white : Palette.slate)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(active ? Color.black.opacity(0.55) : Color.clear))
-                    .contentShape(Capsule())
-                    .onTapGesture { pageRaw = p.rawValue }
+                VStack(spacing: 4) {
+                    Text(p.label)
+                        .font(.system(size: 11.5, weight: active ? .semibold : .regular))
+                        .foregroundStyle(active ? Color.white : Palette.dim)
+                    Rectangle()
+                        .fill(active ? Color.white : Color.clear)
+                        .frame(height: 1.5)
+                        .clipShape(Capsule())
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { pageRaw = p.rawValue }
             }
+            Spacer()
         }
-        .padding(3)
-        .background(Capsule().fill(Palette.track))
         .padding(.horizontal, 16)
-        .padding(.bottom, 10)
+        .padding(.bottom, 12)
     }
 
     private var sections: some View {
@@ -122,7 +141,7 @@ struct PopoverView: View {
     // MARK: header
 
     private var header: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if interactive {
                 Menu {
                     ForEach(Measure.allCases) { m in
@@ -138,42 +157,44 @@ struct PopoverView: View {
                 measureLabel
             }
 
-            Image(systemName: "info.circle")
-                .font(.system(size: 12))
-                .foregroundStyle(Palette.slate)
-                .help("Source: \(store.report?.source.label ?? "—") · \(store.connection.message)")
-
             Spacer()
 
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
-                .help(store.connection.message)
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 5, height: 5)
+                Text(store.connection.message)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Palette.dim)
+                    .lineLimit(1)
+            }
+            .help(store.connection.message)
 
             Button {
                 Task { await store.refresh() }
             } label: {
-                Image(systemName: "square.on.square")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.slate)
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(store.isRefreshing ? Palette.dim : Palette.slate)
             }
             .buttonStyle(.plain)
             .help("Refresh now")
             .disabled(store.isRefreshing)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.top, 13)
+        .padding(.bottom, 9)
     }
 
     private var measureLabel: some View {
-        HStack(spacing: 6) {
-            Text(measure.label)
-                .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(.white)
-            Image(systemName: "chevron.down")
+        HStack(spacing: 5) {
+            Text(measure.label.uppercased())
                 .font(.system(size: 10, weight: .semibold))
+                .tracking(0.9)
                 .foregroundStyle(Palette.slate)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 7, weight: .bold))
+                .foregroundStyle(Palette.dim)
         }
     }
 
@@ -216,7 +237,9 @@ struct PopoverView: View {
         let kenariRows = rows(store.report, colors: [Palette.coral, .purple, .yellow, .pink])
 
         // Two per source, so both are always represented; the rest is one slice per source.
-        let head = Array(claudeRows.prefix(2)) + Array(kenariRows.prefix(2))
+        // Sorted by size so the legend reads biggest-first instead of interleaving sources.
+        let head = (Array(claudeRows.prefix(2)) + Array(kenariRows.prefix(2)))
+            .sorted { $0.value > $1.value }
         var restCount = 0
         var restSum = 0
         for row in claudeRows.dropFirst(2) + kenariRows.dropFirst(2) {
@@ -258,44 +281,43 @@ struct PopoverView: View {
 
     private var donutCard: some View {
         let data = grouped
-        return VStack(spacing: 14) {
+        return VStack(spacing: 13) {
             segmented
-            HStack(spacing: 18) {
-                DonutChart(slices: data.map { ($0.value, $0.color) }, lineWidth: 17)
-                    .frame(width: 106, height: 106)
+            HStack(spacing: 16) {
+                DonutChart(slices: data.map { ($0.value, $0.color) }, lineWidth: 12)
+                    .frame(width: 92, height: 92)
                     .overlay {
-                        VStack(spacing: 1) {
+                        VStack(spacing: 0) {
                             Text(centerValue(grandTotal))
-                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .font(.system(size: 17, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(.white)
                             Text(centerCaption)
-                                .font(.system(size: 10))
-                                .foregroundStyle(Palette.slate)
+                                .font(.system(size: 9))
+                                .foregroundStyle(Palette.dim)
                         }
                     }
-                VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 7) {
                     if data.isEmpty {
-                        Text("No usage in this window")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.slate)
+                        Text("Belum ada pemakaian di rentang ini")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(Palette.dim)
                     }
                     ForEach(Array(data.prefix(5).enumerated()), id: \.offset) { _, s in
-                        HStack(alignment: .top, spacing: 7) {
-                            Circle().fill(s.color).frame(width: 8, height: 8)
-                                .padding(.top, 4)
+                        HStack(spacing: 7) {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(s.color)
+                                .frame(width: 6, height: 6)
                             Text(s.name)
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color.white.opacity(0.9))
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(Color.white.opacity(0.82))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                             Spacer(minLength: 4)
                             Text(shortValue(s.value))
                                 .font(.system(size: 10, weight: .medium))
                                 .monospacedDigit()
                                 .foregroundStyle(Palette.slate)
-                                .padding(.top, 1)
                         }
                     }
                 }
@@ -304,30 +326,26 @@ struct PopoverView: View {
             if let note = claudeShareNote {
                 Text(note)
                     .font(.system(size: 9))
-                    .foregroundStyle(Palette.slate)
+                    .foregroundStyle(Palette.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .padding(13)
+        .cardSurface()
     }
 
     private var segmented: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 14) {
             ForEach(TimeRange.allCases) { r in
                 let active = store.range == r
                 Text(r.label)
-                    .font(.system(size: 12, weight: active ? .semibold : .medium))
-                    .foregroundStyle(active ? Color.white : Palette.slate)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(active ? Color.black.opacity(0.55) : Color.clear))
-                    .contentShape(Capsule())
+                    .font(.system(size: 10.5, weight: active ? .semibold : .regular))
+                    .foregroundStyle(active ? Color.white : Palette.dim)
+                    .contentShape(Rectangle())
                     .onTapGesture { store.range = r }
             }
+            Spacer()
         }
-        .padding(3)
-        .background(Capsule().fill(Palette.track))
     }
 
     private var centerCaption: String {
@@ -357,80 +375,91 @@ struct PopoverView: View {
     // MARK: provider card
 
     private func providerCard(_ card: ProviderQuota) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 8) {
+        let accent = card.id == "claude" ? Palette.jade : Palette.coral
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
                 Image(systemName: card.symbol)
-                    .font(.system(size: 15))
-                    .foregroundStyle(card.id == "claude" ? Palette.jade : Palette.coral)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .frame(width: 14)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(card.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.white)
                     Text(card.subtitle)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Palette.slate)
+                        .font(.system(size: 9))
+                        .foregroundStyle(Palette.dim)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                Spacer()
+                Spacer(minLength: 4)
             }
 
-            ForEach(card.rows) { row in
-                quotaRow(title: row.title, fraction: row.remaining,
-                         left: row.valueText, rightTop: "", rightBottom: row.detail,
-                         color: card.id == "claude" ? Palette.jade : Palette.blue,
-                         leftEmphasis: true)
+            VStack(spacing: 11) {
+                ForEach(card.rows) { row in
+                    quotaRow(title: row.title, fraction: row.remaining,
+                             left: row.valueText, rightTop: "", rightBottom: row.detail,
+                             color: accent, leftEmphasis: true,
+                             depleted: row.remaining <= 0.001)
+                }
             }
 
             if let note = card.note {
                 Text(note)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.slate)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Palette.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let foot = card.footnote {
                 Text(foot)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9.5))
                     .monospacedDigit()
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(Palette.dim.opacity(0.85))
             }
         }
-        .padding(14)
+        .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
     private func quotaRow(title: String, fraction: Double, left: String,
                           rightTop: String, rightBottom: String, color: Color,
-                          leftEmphasis: Bool = false) -> some View {
+                          leftEmphasis: Bool = false, depleted: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.85))
-                Spacer()
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.white.opacity(0.78))
+                Spacer(minLength: 6)
                 Text(left)
-                    .font(.system(size: leftEmphasis ? 12 : 10, weight: leftEmphasis ? .semibold : .regular))
+                    .font(.system(size: leftEmphasis ? 12 : 10,
+                                  weight: leftEmphasis ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundStyle(leftEmphasis ? Color.white : Palette.slate)
+                    .foregroundStyle(depleted ? Palette.coral : Color.white)
                 if !rightTop.isEmpty {
                     Text(rightTop)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Palette.slate)
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(Palette.dim)
                 }
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Palette.track)
-                    Capsule()
-                        .fill(color)
-                        .frame(width: max(3, geo.size.width * min(1, max(0, fraction))))
+                    // Depleted keeps a full-width coral-tinted track: a bare track reads as
+                    // "no data", which is exactly what the 0% row used to look like.
+                    Capsule().fill(depleted ? Palette.coral.opacity(0.20) : Palette.track)
+                    if !depleted {
+                        Capsule()
+                            .fill(color)
+                            .frame(width: max(3, geo.size.width * min(1, fraction)))
+                    }
                 }
             }
-            .frame(height: 5)
-            Text(rightBottom)
-                .font(.system(size: 10))
+            .frame(height: 4)
+            Text(depleted ? "habis · \(rightBottom)" : rightBottom)
+                .font(.system(size: 9.5))
                 .monospacedDigit()
-                .foregroundStyle(Palette.slate)
+                .foregroundStyle(depleted ? Palette.coral.opacity(0.9) : Palette.dim)
         }
     }
 
@@ -463,14 +492,10 @@ struct PopoverView: View {
 
     private var footerRow: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("UsageBar \(version)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.75))
-                Text("Next update in \(nextUpdateText)")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Palette.slate)
-            }
+            Text("\(version) · update \(nextUpdateText)")
+                .font(.system(size: 9.5))
+                .monospacedDigit()
+                .foregroundStyle(Palette.dim)
             Spacer()
             if interactive {
                 Menu {
@@ -498,22 +523,22 @@ struct PopoverView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 9)
         .background(Palette.panel)
         .overlay(alignment: .top) {
-            Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+            Rectangle().fill(Palette.stroke).frame(height: 1)
         }
     }
 
     private var optionsLabel: some View {
-        HStack(spacing: 4) {
-            Text("Options").font(.system(size: 11, weight: .medium))
-            Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+        HStack(spacing: 3) {
+            Text("Opsi").font(.system(size: 10, weight: .medium))
+            Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Capsule().fill(Color.white.opacity(0.12)))
+        .foregroundStyle(Palette.slate)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .overlay(Capsule().strokeBorder(Palette.stroke, lineWidth: 1))
     }
 
     private var version: String {

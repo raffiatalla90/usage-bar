@@ -173,14 +173,14 @@ public final class UsageStore: ObservableObject {
         if let week = a.weeklyRemaining {
             rows.append(QuotaRow(
                 title: "Kuota mingguan",
-                valueText: "Tersisa \(Int((week * 100).rounded()))%",
+                valueText: remainingText(week),
                 detail: resetsText(a.weeklyResetsAt, prefix: "pulih dalam"),
                 remaining: week))
         }
         if let month = a.monthlyRemaining {
             rows.append(QuotaRow(
                 title: "Kuota bulanan",
-                valueText: "Tersisa \(Int((month * 100).rounded()))%",
+                valueText: remainingText(month),
                 detail: resetsText(a.monthlyResetsAt, prefix: "pulih dalam"),
                 remaining: month))
         }
@@ -189,7 +189,7 @@ public final class UsageStore: ObservableObject {
             let left = max(0, limit - used)
             rows.append(QuotaRow(
                 title: "Pencarian web",
-                valueText: "Tersisa \(left) dari \(limit)",
+                valueText: left == 0 ? "Tersisa 0 dari \(limit)" : "Tersisa \(left) dari \(limit)",
                 detail: "pulih setiap hari 07.00 WIB",
                 remaining: Double(left) / Double(max(1, limit))))
         }
@@ -237,7 +237,7 @@ public final class UsageStore: ObservableObject {
         guard let r = claudeReport, r.totals.requests > 0 else {
             var rows: [QuotaRow] = claudeQuota.windows.map { w in
                 QuotaRow(title: w.label,
-                         valueText: "Tersisa \(Int((w.remaining * 100).rounded()))%",
+                         valueText: remainingText(w.remaining),
                          detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
                          remaining: w.remaining)
             }
@@ -264,7 +264,7 @@ public final class UsageStore: ObservableObject {
         for w in claudeQuota.windows {
             rows.append(QuotaRow(
                 title: w.label,
-                valueText: "Tersisa \(Int((w.remaining * 100).rounded()))%",
+                valueText: remainingText(w.remaining),
                 detail: resetsText(w.resetsAt, prefix: "pulih dalam"),
                 remaining: w.remaining))
         }
@@ -290,6 +290,12 @@ public final class UsageStore: ObservableObject {
 
     private func percent(_ fraction: Double) -> String {
         "\(Int((fraction * 100).rounded()))%"
+    }
+
+    /// Always a percentage so the value column stays scannable; depletion is shown by the
+    /// coral track in the view, not by swapping the unit for a word.
+    private func remainingText(_ fraction: Double) -> String {
+        "Tersisa \(Int((max(0, fraction) * 100).rounded()))%"
     }
 
     private func resetsText(_ date: Date?, prefix: String) -> String {

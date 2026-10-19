@@ -87,7 +87,7 @@ struct TokenPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
     private func bar(_ width: CGFloat, _ color: Color) -> some View {
@@ -137,10 +137,8 @@ struct TokenPage: View {
                 Text(note).font(.system(size: 10)).foregroundStyle(Palette.slate)
             } else if let t = totals {
                 HStack(spacing: 8) {
-                    tokenCell("Input", t.inputTokens, accent)
-                    tokenCell("Output", t.outputTokens, accent)
-                }
-                HStack(spacing: 8) {
+                    tokenCell("Input", t.inputTokens, accent, emphasis: true)
+                    tokenCell("Output", t.outputTokens, accent, emphasis: true)
                     tokenCell("Cache baca", t.cacheReadTokens, Palette.slate)
                     tokenCell("Cache tulis", t.cacheWriteTokens, Palette.slate)
                 }
@@ -149,61 +147,66 @@ struct TokenPage: View {
                 if t.cacheReadTokens + t.cacheWriteTokens > 0 {
                     Text("total di atas = input + output; cache tidak dihitung")
                         .font(.system(size: 8))
-                        .foregroundStyle(Palette.slate.opacity(0.85))
+                        .foregroundStyle(Palette.dim)
                 }
                 if !models.isEmpty {
-                    Divider().overlay(Color.white.opacity(0.07))
+                    Divider().overlay(Color.white.opacity(0.07)).padding(.top, 2)
                     ForEach(models.prefix(4)) { m in
-                        HStack(spacing: 6) {
-                            Text(m.displayName)
-                                .font(.system(size: 10))
-                                .foregroundStyle(Color.white.opacity(0.85))
-                                .lineLimit(1)
-                            Spacer(minLength: 4)
-                            Text("\(Money.tokens(m.totalTokens))")
-                                .font(.system(size: 10, weight: .medium))
-                                .monospacedDigit()
-                                .foregroundStyle(.white)
-                            Text("\(m.requests) req")
-                                .font(.system(size: 9))
-                                .monospacedDigit()
-                                .foregroundStyle(Palette.slate)
-                        }
+                        modelRow(name: m.displayName,
+                                 tokens: Money.tokens(m.totalTokens),
+                                 reqs: "\(m.requests) req", dim: false)
                     }
                     // Without this the visible model rows do not add up to the card total,
                     // which reads like missing data rather than a truncated list.
                     if models.count > 4 {
                         let rest = models.dropFirst(4)
-                        HStack(spacing: 6) {
-                            Text("+\(rest.count) model lain")
-                                .font(.system(size: 9))
-                                .foregroundStyle(Palette.slate)
-                            Spacer(minLength: 4)
-                            Text(Money.tokens(rest.reduce(0) { $0 + $1.totalTokens }))
-                                .font(.system(size: 9))
-                                .monospacedDigit()
-                                .foregroundStyle(Palette.slate)
-                        }
+                        modelRow(name: "+\(rest.count) model lain",
+                                 tokens: Money.tokens(rest.reduce(0) { $0 + $1.totalTokens }),
+                                 reqs: "", dim: true)
                     }
                 }
             }
         }
-        .padding(14)
+        .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
-    private func tokenCell(_ label: String, _ value: Int, _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 9)).foregroundStyle(Palette.slate)
-            Text(Money.tokens(value))
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+    /// Name / value / request count on one row. The req column has a fixed width so the
+    /// numbers stack vertically instead of starting at a different x per row.
+    private func modelRow(name: String, tokens: String, reqs: String, dim: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.system(size: 10))
+                .foregroundStyle(dim ? Palette.dim : Color.white.opacity(0.85))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(tokens)
+                .font(.system(size: 10, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(color == Palette.slate ? Color.white.opacity(0.8) : color)
+                .foregroundStyle(dim ? Palette.dim : .white)
+            Text(reqs)
+                .font(.system(size: 9))
+                .monospacedDigit()
+                .foregroundStyle(Palette.dim)
+                .frame(width: 46, alignment: .trailing)
+        }
+    }
+
+    /// Input/Output carry the accent and full size; cache is muted and smaller because it is
+    /// excluded from the card total and would otherwise out-shout the numbers that matter.
+    private func tokenCell(_ label: String, _ value: Int, _ color: Color,
+                           emphasis: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.system(size: 9)).foregroundStyle(Palette.dim)
+            Text(Money.tokens(value))
+                .font(.system(size: emphasis ? 14 : 12,
+                              weight: emphasis ? .semibold : .medium,
+                              design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(emphasis ? color : Color.white.opacity(0.6))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
     }
 
     // MARK: daily
@@ -263,7 +266,7 @@ struct TokenPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+        .cardSurface()
     }
 
     private func shortDay(_ d: Date?) -> String {
