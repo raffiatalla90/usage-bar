@@ -70,6 +70,20 @@ Nothing is written to the repo. Keys are never logged.
 out its content) and `Menu` (label is not rasterised), so `PopoverView` has `scrolling` and
 `interactive` flags that the renderer turns off.
 
+## Promo shot
+
+Menu → **Simpan gambar promo…** writes a 944×2048 hero image to `~/Pictures/UsageBar/` and
+reveals it in Finder. Same artwork from the CLI:
+
+```bash
+.build/release/UsageBar --render-shot /tmp/shot.png --caption "Out of sight."
+.build/release/UsageBar --save-shot          # writes to ~/Pictures/UsageBar/
+```
+
+The composition is fixed (blurred backdrop, two cards hung on a wire, window bleeding off the
+right edge, caption pill); the numbers and model names come from the live report, so the image
+never shows fake data. Source: `Sources/UsageBar/MarketingShot.swift`.
+
 ## Tests
 
 ```bash

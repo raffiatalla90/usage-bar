@@ -41,6 +41,36 @@ enum Renderer {
         exit(0)
     }
 
+    /// Marketing hero shot, 472x1024 logical doubled to 944x2048. Uses the live report so the
+    /// numbers in the artwork are the real ones, not lorem ipsum.
+    static func renderShot(to path: String, caption: String) -> Never {
+        var done = false
+        Task { @MainActor in
+            let store = UsageStore()
+            store.range = .last30
+            await store.refresh()
+            let report = store.report
+            let data = MarketingShotExporter.data(from: store)
+            let view = MarketingShot(data: data, caption: caption)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            if let img = renderer.nsImage,
+               let tiff = img.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: URL(fileURLWithPath: path))
+                print("wrote \(path) \(Int(img.size.width))x\(Int(img.size.height))")
+            } else {
+                print("render failed")
+            }
+            done = true
+        }
+        while !done {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        exit(0)
+    }
+
     static func render(to path: String, range: TimeRange, page: Page? = nil) -> Never {
         var done = false
         Task { @MainActor in

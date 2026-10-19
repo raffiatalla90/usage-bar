@@ -20,6 +20,8 @@ final class ActivityWatcher: ObservableObject {
 
     @Published private(set) var all: [CodeActivity] = []
     @Published private(set) var lastChange: Date?
+    /// Newest touch of any agent log, writes or not — drives the live/idle label.
+    @Published private(set) var lastTouch: Date?
     @Published var expanded = false
     @Published var filter: Filter = .all
 
@@ -35,7 +37,10 @@ final class ActivityWatcher: ObservableObject {
     func start() {
         refreshSync()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in
+                self?.refreshTouch()
+                self?.refresh()
+            }
         }
         RunLoop.main.add(timer!, forMode: .common)
     }
@@ -59,6 +64,7 @@ final class ActivityWatcher: ObservableObject {
 
     /// Inline scan for the renderer and for the moment the panel opens.
     func refreshSync() {
+        refreshTouch()
         apply(ActivityFeed.recent(since: Date().addingTimeInterval(-window),
                                   limit: limit, cache: cache))
     }
@@ -86,6 +92,12 @@ final class ActivityWatcher: ObservableObject {
         lastChange = all.first?.date
     }
 
+    /// Poll the log mtimes. Cheap (a few dozen `stat` calls) and runs on the main actor so the
+    /// strip's dot flips within one tick of the agent writing anything.
+    func refreshTouch() {
+        lastTouch = ActivityFeed.lastTouch()
+    }
+
     var items: [CodeActivity] {
         switch filter {
         case .all: return all
@@ -103,8 +115,10 @@ final class ActivityWatcher: ObservableObject {
     }
 
     var isBusy: Bool {
-        guard let d = lastChange else { return false }
-        return Date().timeIntervalSince(d) < 45
+        guard let d = lastTouch else { return false }
+        // 3 minutes: a long tool call (a build, a test suite) can easily exceed 45 s without
+        // writing a log line, and the strip claimed the agent was idle mid-run.
+        return Date().timeIntervalSince(d) < 180
     }
 
     /// Items grouped by project folder, preserving recency order of the groups.
@@ -448,7 +462,7 @@ struct NotchView: View {
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(Ink.text)
             Spacer(minLength: 0)
-            Text(watcher.isBusy ? "sedang menulis" : "diam sejak \(watcher.lastChange.map(ago) ?? "—")")
+            Text(watcher.isBusy ? "sedang bekerja" : "diam sejak \(watcher.lastTouch.map(ago) ?? "—")")
                 .font(.system(size: 9.5, weight: .medium, design: .rounded))
                 .foregroundStyle(watcher.isBusy ? Ink.live.opacity(0.85) : Ink.faint)
         }

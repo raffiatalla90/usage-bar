@@ -76,6 +76,33 @@ public enum ActivityFeed {
         return Array(all.prefix(limit))
     }
 
+    /// Newest write anywhere in the agent logs — a session file's mtime moves on *every* tool
+    /// call, including a `Read` or a `git status`, so this is the honest "agent is working"
+    /// signal. The activity feed itself only lists file writes, so a busy agent that is merely
+    /// reading would otherwise look idle.
+    public static func lastTouch(within window: TimeInterval = 6 * 3600) -> Date? {
+        let fm = FileManager.default
+        var newest: Date?
+        func bump(_ d: Date?) {
+            guard let d, d >= Date().addingTimeInterval(-window) else { return }
+            if newest == nil || d > newest! { newest = d }
+        }
+        for db in [openCodeDB, openCodeDB + "-wal"] {
+            bump((try? fm.attributesOfItem(atPath: db))?[.modificationDate] as? Date)
+        }
+        guard let dirs = try? fm.contentsOfDirectory(atPath: claudeProjects) else { return newest }
+        for d in dirs {
+            let dirURL = URL(fileURLWithPath: claudeProjects).appendingPathComponent(d)
+            guard let names = try? fm.contentsOfDirectory(at: dirURL,
+                                                          includingPropertiesForKeys: [.contentModificationDateKey])
+            else { continue }
+            for url in names where url.pathExtension == "jsonl" {
+                bump((try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate))
+            }
+        }
+        return newest
+    }
+
     /// Shell-log parsing is best-effort, so a redirect target can come out as a fragment of
     /// code (`<link`, `{`, `"`). Drop those: a real edit names an absolute path with no shell
     /// metacharacters, and either still exists or at least looks like a file.

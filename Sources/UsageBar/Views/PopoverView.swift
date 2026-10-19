@@ -471,6 +471,7 @@ struct PopoverView: View {
             if interactive {
                 Menu {
                     Button("Refresh now") { Task { await store.refresh() } }
+                    Button("Simpan gambar promo…") { saveShot() }
                     Divider()
                     Toggle("Launch at Login", isOn: Binding(
                         get: { store.launchAtLogin },
@@ -514,6 +515,17 @@ struct PopoverView: View {
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+    }
+
+    /// Writes the hero shot next to the user's other pictures and reveals it in Finder, so
+    /// "where did it go?" is answered by the Finder window that opens.
+    private func saveShot() {
+        let data = MarketingShotExporter.data(from: store)
+        guard let path = MarketingShotExporter.save(data, caption: "Pantau tanpa buka.") else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
     private var nextUpdateText: String {
