@@ -1,0 +1,24 @@
+# Build output
+.build/
+build/
+*.app
+.swiftpm/
+
+# Agent / swarm scratch state — session traces, embeddings, never part of the app
+.claude-flow/
+.swarm/
+.ruflo/
+ruvector.db
+agentdb-memory.db
+
+# Local secrets and machine state — must never reach the repo
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+.kenari/
+
+# macOS / editor noise
+.DS_Store
+*.xcuserstate
