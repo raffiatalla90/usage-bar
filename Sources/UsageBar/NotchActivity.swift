@@ -114,6 +114,14 @@ final class ActivityWatcher: ObservableObject {
         }
     }
 
+    /// Today only, in the current filter. The strip used to print the whole retained window,
+    /// so the number grew all day and kept yesterday's work in it — it read as a lifetime
+    /// total rather than as "what got touched today".
+    var todayCount: Int {
+        let start = Calendar.current.startOfDay(for: Date())
+        return items.filter { $0.date >= start }.count
+    }
+
     var isBusy: Bool {
         guard let d = lastTouch else { return false }
         // 3 minutes: a long tool call (a build, a test suite) can easily exceed 45 s without
@@ -381,15 +389,21 @@ struct NotchView: View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
                 ZStack {
+                    // No halo at all when idle: the strip is either clearly working or plainly
+                    // still, so "diam" never animates and can't be mistaken for activity.
                     if watcher.isBusy {
-                        Circle().fill(Ink.live.opacity(0.35))
+                        Circle().fill(Ink.live.opacity(0.22))
                             .frame(width: 13, height: 13)
-                            .scaleEffect(pulse ? 1.0 : 0.55)
-                            .opacity(pulse ? 0.25 : 0.8)
+                            .scaleEffect(pulse ? 1.0 : 0.45)
+                            .opacity(pulse ? 0.15 : 0.85)
                     }
                     Circle()
                         .fill(watcher.isBusy ? Ink.live : Color.white.opacity(0.22))
                         .frame(width: 5.5, height: 5.5)
+                        // Breathing beats a static dot: at 5.5 pt the only readable signal of
+                        // work is the dot moving, not the faint halo behind it.
+                        .scaleEffect(watcher.isBusy && pulse ? 1.35 : 1.0)
+                        .opacity(watcher.isBusy ? (pulse ? 1.0 : 0.55) : 1.0)
                 }
                 // Always spelled out: an idle agent used to render as a bare dot, which read
                 // like the feed had stopped working rather than like nothing was being written.
@@ -405,7 +419,7 @@ struct NotchView: View {
             Color.black.frame(width: notchWidth)
 
             HStack(spacing: 4) {
-                Text(compact(watcher.all.count))
+                Text(compact(watcher.todayCount))
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(Ink.text)
