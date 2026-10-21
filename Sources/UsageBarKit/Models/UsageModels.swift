@@ -226,6 +226,26 @@ public struct AccountInfo: Hashable, Sendable {
     }
 }
 
+public enum ProviderHealth: Equatable, Sendable {
+    case unknown          // belum pernah dicek
+    case live             // terhubung, angka segar
+    case stale(String)    // terhubung tapi angka lama / cadangan
+    case down(String)     // tidak bisa dibaca
+
+    public var isDown: Bool { if case .down = self { return true }; return false }
+    public var isLive: Bool { if case .live = self { return true }; return false }
+
+    /// Short label for a badge; nil when there is nothing worth flagging.
+    public var badge: String? {
+        switch self {
+        case .unknown: return nil
+        case .live: return nil
+        case .stale(let reason): return reason.isEmpty ? "data lama" : "data lama · \(reason)"
+        case .down(let reason): return reason.isEmpty ? "tidak aktif" : reason
+        }
+    }
+}
+
 public enum ConnectionState: Equatable, Sendable {
     case unknown, ok, degraded(String), failed(String)
     public var isOK: Bool { if case .ok = self { return true }; return false }

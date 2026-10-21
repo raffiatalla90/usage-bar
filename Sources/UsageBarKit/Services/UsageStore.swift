@@ -12,6 +12,10 @@ public final class UsageStore: ObservableObject {
     @Published public private(set) var lastUpdated: Date?
     @Published public private(set) var sourceErrors: [String: String] = [:]   // source label -> message
     @Published public private(set) var isRefreshing = false
+    /// Per-provider truth for the two live sources. `sourceErrors` is a general
+    /// bucket; this is what the popover badges and what triggers a notification.
+    @Published public private(set) var kenariHealth: ProviderHealth = .unknown
+    @Published public private(set) var claudeHealth: ProviderHealth = .unknown
     /// Local context-saver status. Read from their own stores; no network.
     @Published public private(set) var rtk = RTKStats.empty
     @Published public private(set) var caveman = CavemanStatus.empty
@@ -46,7 +50,7 @@ public final class UsageStore: ObservableObject {
         let savedRange = UserDefaults.standard.string(forKey: Keys.range).flatMap(TimeRange.init(rawValue:))
         self.range = savedRange ?? .last30
         let savedInterval = UserDefaults.standard.double(forKey: Keys.interval)
-        self.refreshInterval = savedInterval > 0 ? savedInterval : 60
+        self.refreshInterval = savedInterval > 0 ? savedInterval : 30
         self.lastUpdated = UserDefaults.standard.object(forKey: Keys.lastUpdated) as? Date
         restartTimer()
         refreshLocalTools()
@@ -72,13 +76,16 @@ public final class UsageStore: ObservableObject {
                 remoteReport = result.report
                 account = result.account
                 connection = .ok
+                kenariHealth = .live
             } catch {
                 remoteError = error.localizedDescription
                 sourceErrors["Kenari API"] = remoteError
+                kenariHealth = .down(remoteError ?? "tidak merespons")
             }
         } else {
             remoteError = "no API key"
             sourceErrors["Kenari API"] = "No API key saved"
+            kenariHealth = .down("API key belum disimpan")
         }
 
         // 2) 9router local — the gateway OpenCode actually uses for Kenari. The saved API key
@@ -95,6 +102,9 @@ public final class UsageStore: ObservableObject {
         if let local = localReport, local.totals.requests > 0 {
             report = local
             connection = remoteError == nil ? .ok : .degraded(remoteError ?? "remote unavailable")
+            // Kenari API gagal tapi trafik lokal masih terbaca: angkanya nyata, cuma
+            // bukan dari sumber utama. Tandai "data lama", jangan "mati".
+            if kenariHealth.isDown { kenariHealth = .stale("pakai data lokal") }
         } else if let remote = remoteReport {
             report = remote
         } else {
@@ -125,6 +135,20 @@ public final class UsageStore: ObservableObject {
         } else {
             claudeQuota = fresh
         }
+        // Health follows the quota endpoint, not the local log: the endpoint is the thing
+        // that actually goes dark when the login expires.
+        if fresh.windows.isEmpty {
+            claudeHealth = .down(fresh.error ?? "kuota tidak terbaca")
+        } else if let e = fresh.error {
+            claudeHealth = .stale(e)
+        } else {
+            claudeHealth = .live
+        }
+
+        var failures: [String: String] = [:]
+        if case .down(let reason) = kenariHealth { failures["Kenari"] = reason }
+        if case .down(let reason) = claudeHealth { failures["Claude Code"] = reason }
+        ProviderNotifier.shared.report(failures: failures)
 
         touchUpdated()
         refreshLocalTools()

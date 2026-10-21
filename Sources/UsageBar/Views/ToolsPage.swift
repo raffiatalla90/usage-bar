@@ -9,13 +9,69 @@ import UsageBarKit
 struct ToolsPage: View {
     @ObservedObject var store: UsageStore
 
+    /// Levels are read once on appear and after every write; they are not on the refresh tick
+    /// because each read hits a different file (or a loopback HTTP call) and nothing else
+    /// changes them while the popover is open.
+    /// Seeded synchronously so the offscreen render (which never runs `.task`) still shows the
+    /// real selection; `loadLevels()` re-reads on appear and after every write. Headroom falls
+    /// back to its documented default so a fresh install still highlights one chip.
+    @State private var cavemanLevel: String? = ToolSettings.cavemanLevel()
+    @State private var rtkLevel: String? = ToolSettings.rtkLevel()
+    @State private var headroomLevel: String? = ToolSettings.headroomStoredLevel() ?? "coding"
+    @State private var note: String?
+
     var body: some View {
         VStack(spacing: 14) {
-            activeCard
             headroomCard
             rtkCard
             cavemanCard
+            activeCard
+            if let note {
+                Text(note).font(.system(size: 9)).foregroundStyle(Palette.coral)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             footnote
+        }
+        .task { await loadLevels() }
+    }
+
+    private func loadLevels() async {
+        cavemanLevel = ToolSettings.cavemanLevel()
+        rtkLevel = ToolSettings.rtkLevel()
+        headroomLevel = await ToolSettings.headroomLevel(port: store.headroom.port)
+            ?? ToolSettings.headroomStoredLevel() ?? "coding"
+    }
+
+    /// One row of choices per tool. `nil` current means "nothing stored yet" — the tool is on
+    /// its own default, which is why no chip is highlighted instead of guessing which one.
+    private func levelPicker(_ levels: [ToolLevel], current: String?,
+                             set: @escaping (String) -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text("level").font(.system(size: 9)).foregroundStyle(Palette.slate)
+            ForEach(levels) { level in
+                let active = current == level.id
+                Text(level.label)
+                    .font(.system(size: 9, weight: active ? .semibold : .regular))
+                    .foregroundStyle(active ? Palette.panel : Color.white.opacity(0.85))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(active ? Palette.jade : Color.white.opacity(0.07))
+                    )
+                    .contentShape(Capsule())
+                    .onTapGesture { set(level.id) }
+                    .help(level.id)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func apply(_ work: @escaping () throws -> Void) {
+        do {
+            try work()
+            note = nil
+            Task { await loadLevels(); store.refreshLocalTools() }
+        } catch {
+            note = error.localizedDescription
         }
     }
 
@@ -145,6 +201,29 @@ struct ToolsPage: View {
                 statusPill(running: h.isRunning, label: h.isRunning ? "jalan" : "mati")
             }
 
+            levelPicker(ToolSettings.headroomLevels, current: headroomLevel) { level in
+                Task {
+                    do {
+                        let needsRestart = try await ToolSettings.setHeadroomLevel(level, port: h.port)
+                        headroomLevel = level
+                        if needsRestart {
+                            // LaunchAgent install: bounce it so the profile takes effect now.
+                            if await ToolSettings.restartHeadroom(port: h.port) {
+                                headroomLevel = await ToolSettings.headroomLevel(port: h.port)
+                                note = "profil \(level) aktif — proxy di-restart"
+                            } else {
+                                note = "profil tersimpan — proxy perlu di-restart agar berlaku"
+                            }
+                        } else {
+                            note = nil
+                        }
+                        store.refreshLocalTools()
+                    } catch {
+                        note = error.localizedDescription
+                    }
+                }
+            }
+
             if h.requests == 0, h.tokensSavedAll == 0 {
                 Text(h.error ?? "belum ada trafik tercatat")
                     .font(.system(size: 10)).foregroundStyle(Palette.slate)
@@ -173,6 +252,7 @@ struct ToolsPage: View {
                     Text(e).font(.system(size: 9)).foregroundStyle(Palette.coral)
                 }
             }
+
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,6 +275,10 @@ struct ToolsPage: View {
                 }
                 Spacer()
                 statusPill(running: r.isRunning, label: r.isRunning ? "jalan" : "idle")
+            }
+
+            levelPicker(ToolSettings.rtkLevels, current: rtkLevel) { level in
+                apply { try ToolSettings.setRtkLevel(level) }
             }
 
             if let error = r.error, !r.dbFound {
@@ -223,7 +307,8 @@ struct ToolsPage: View {
                         .truncationMode(.middle)
                 }
             }
-        }
+
+                    }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface()
@@ -244,6 +329,10 @@ struct ToolsPage: View {
                 }
                 Spacer()
                 statusPill(running: c.running, label: c.running ? "aktif" : "mati")
+            }
+
+            levelPicker(ToolSettings.cavemanLevels, current: cavemanLevel) { level in
+                apply { try ToolSettings.setCavemanLevel(level) }
             }
 
             if c.agents.isEmpty {
@@ -274,7 +363,8 @@ struct ToolsPage: View {
                     .font(.system(size: 9))
                     .foregroundStyle(Palette.slate)
             }
-        }
+
+                    }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface()

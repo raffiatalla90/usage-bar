@@ -65,9 +65,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateTitle() }
             .store(in: &cancellables)
+        store.$kenariHealth
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateTitle() }
+            .store(in: &cancellables)
+        store.$claudeHealth
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateTitle() }
+            .store(in: &cancellables)
 
         updateTitle()
+        ProviderNotifier.shared.requestAuthorization()
         Task { await store.refresh() }
+
+        // A timer cannot fire while the Mac is asleep, so the first thing the user sees
+        // after waking would otherwise be numbers frozen at yesterday's bedtime.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.store.restartTimer()
+            Task { await self.store.refresh() }
+        }
 
         notch.start()
 
@@ -79,8 +98,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateTitle() {
         guard let button = statusItem?.button else { return }
-        button.title = " " + store.menuBarTitle
-        button.toolTip = "Kenari · \(store.connection.message)\n\(store.relativeUpdatedText())"
+        // A dead provider must be visible without opening the panel.
+        let warn = store.kenariHealth.isDown || store.claudeHealth.isDown
+        button.title = (warn ? " ⚠ " : " ") + store.menuBarTitle
+        var tip = "Kenari · \(store.connection.message)"
+        if case .down(let r) = store.kenariHealth { tip += "\nKenari mati: \(r)" }
+        if case .down(let r) = store.claudeHealth { tip += "\nClaude mati: \(r)" }
+        button.toolTip = tip + "\n\(store.relativeUpdatedText())"
+        button.contentTintColor = warn ? NSColor.systemOrange : nil
     }
 
     @objc private func togglePopover() {
@@ -88,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // Always re-fetch when the panel opens: a number you can see should not be
+            // older than the moment you asked for it.
+            Task { await store.refresh() }
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }

@@ -12,6 +12,7 @@ enum Palette {
     static let jade   = Color(red: 0.18, green: 0.80, blue: 0.60)
     static let blue   = Color(red: 0.29, green: 0.56, blue: 1.00)
     static let slate  = Color(red: 0.66, green: 0.66, blue: 0.70)
+    static let amber  = Color(red: 0.98, green: 0.72, blue: 0.28)
     static let dim    = Color(red: 0.56, green: 0.56, blue: 0.60)
     static let modelColors: [Color] = [coral, jade, blue, .purple, .yellow, .pink]
 }
@@ -374,6 +375,29 @@ struct PopoverView: View {
 
     // MARK: provider card
 
+    /// Silent when healthy — a badge only earns space when something is wrong.
+    @ViewBuilder
+    private func healthBadge(for id: String) -> some View {
+        let health: ProviderHealth = id == "claude" ? store.claudeHealth : store.kenariHealth
+        if let text = health.badge {
+            let down = health.isDown
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(down ? Palette.coral : Palette.amber)
+                    .frame(width: 5, height: 5)
+                Text(text)
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundStyle(down ? Palette.coral : Palette.amber)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill((down ? Palette.coral : Palette.amber).opacity(0.14))
+            )
+        }
+    }
+
     private func providerCard(_ card: ProviderQuota) -> some View {
         let accent = card.id == "claude" ? Palette.jade : Palette.coral
         return VStack(alignment: .leading, spacing: 10) {
@@ -393,6 +417,8 @@ struct PopoverView: View {
                         .truncationMode(.tail)
                 }
                 Spacer(minLength: 4)
+
+                healthBadge(for: card.id)
             }
 
             VStack(spacing: 11) {
