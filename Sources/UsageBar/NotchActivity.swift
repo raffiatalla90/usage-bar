@@ -356,7 +356,6 @@ struct NotchView: View {
     var notchHeight: CGFloat = 34
 
     @State private var hovered: String?
-    @State private var pulse = false
 
     private var expanded: Bool { forceExpanded ?? watcher.expanded }
 
@@ -376,9 +375,6 @@ struct NotchView: View {
             if expanded { panel } else { strip }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { pulse = true }
-        }
     }
 
     // MARK: Collapsed
@@ -387,34 +383,38 @@ struct NotchView: View {
     /// is the camera housing and stays black so nothing shows through from behind.
     private var strip: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 6) {
-                ZStack {
-                    // No halo at all when idle: the strip is either clearly working or plainly
-                    // still, so "diam" never animates and can't be mistaken for activity.
-                    if watcher.isBusy {
-                        Circle().fill(Ink.live.opacity(0.22))
-                            .frame(width: 13, height: 13)
-                            .scaleEffect(pulse ? 1.0 : 0.45)
-                            .opacity(pulse ? 0.15 : 0.85)
+            // 0.16 s while working (a decrypting terminal), 0.8 s while idle (only the cursor
+            // breathes). Tying the cadence to state means "diam" costs almost nothing and
+            // reads as genuinely still next to the fast live flicker.
+            TimelineView(.periodic(from: .distantPast,
+                                   by: watcher.isBusy ? 0.16 : 0.8)) { timeline in
+                let frame = Int(timeline.date.timeIntervalSinceReferenceDate
+                                / (watcher.isBusy ? 0.16 : 0.8))
+                HStack(spacing: 5) {
+                    ZStack {
+                        if watcher.isBusy {
+                            Circle().fill(Ink.live.opacity(0.20))
+                                .frame(width: 13, height: 13)
+                                .scaleEffect(frame % 4 < 2 ? 1.0 : 0.55)
+                                .opacity(frame % 4 < 2 ? 0.12 : 0.7)
+                        }
+                        Circle()
+                            .fill(watcher.isBusy ? Ink.live : Color.white.opacity(0.22))
+                            .frame(width: 5.5, height: 5.5)
+                            .opacity(watcher.isBusy ? (frame % 2 == 0 ? 1.0 : 0.45) : 0.55)
                     }
-                    Circle()
-                        .fill(watcher.isBusy ? Ink.live : Color.white.opacity(0.22))
-                        .frame(width: 5.5, height: 5.5)
-                        // Breathing beats a static dot: at 5.5 pt the only readable signal of
-                        // work is the dot moving, not the faint halo behind it.
-                        .scaleEffect(watcher.isBusy && pulse ? 1.35 : 1.0)
-                        .opacity(watcher.isBusy ? (pulse ? 1.0 : 0.55) : 1.0)
+                    // Decrypt effect: live spells itself out character by character from noise,
+                    // idle types once then holds a still cursor.
+                    Text(Self.decrypt(watcher.isBusy ? "live" : "diam", frame: frame))
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(watcher.isBusy ? Ink.live : Ink.faint)
+                        .lineLimit(1)
+                        .fixedSize()
+                    cursor(frame: frame, active: watcher.isBusy)
                 }
-                // Always spelled out: an idle agent used to render as a bare dot, which read
-                // like the feed had stopped working rather than like nothing was being written.
-                Text(watcher.isBusy ? "live" : "diam")
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
-                    .foregroundStyle(watcher.isBusy ? Ink.live.opacity(0.9) : Ink.faint)
-                    .lineLimit(1)
-                    .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 13)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 13)
 
             Color.black.frame(width: notchWidth)
 
@@ -439,6 +439,38 @@ struct NotchView: View {
         .background(Color.black)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggle)
+    }
+
+    /// Characters a decrypting terminal shows before a glyph resolves. Deterministic per
+    /// frame/key so a re-render of the same frame is identical (the renderer captures stills).
+    private static let glyphPool = Array("01<>/\\|#%&*+=$_")
+
+    /// Terminal-style decrypt: resolved prefix grows, the rest flickers as noise, holds a
+    /// beat when complete, then starts over. `nil` for static text.
+    private static func decrypt(_ text: String, frame: Int, hold: Int = 5) -> String {
+        let chars = Array(text)
+        let reveal = frame % (chars.count + hold)
+        var out = ""
+        out.reserveCapacity(chars.count)
+        for (i, ch) in chars.enumerated() {
+            if i < reveal || ch == " " {
+                out.append(ch)
+            } else {
+                let seed = frame &* 31 &+ i &* 17
+                out.append(glyphPool[abs(seed) % glyphPool.count])
+            }
+        }
+        return out
+    }
+
+    /// Block cursor. Blinks fast while working, breathes slowly while idle: the rhythm alone
+    /// says whether the agent is writing or merely waiting for input.
+    @ViewBuilder
+    private func cursor(frame: Int, active: Bool) -> some View {
+        let on = active ? (frame % 6 < 3) : (frame % 20 < 6)
+        RoundedRectangle(cornerRadius: 0.5)
+            .fill((active ? Ink.live : Ink.faint).opacity(on ? 0.95 : 0.12))
+            .frame(width: 3.5, height: 8)
     }
 
     /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
