@@ -1,7 +1,7 @@
 import SwiftUI
 import UsageBarKit
 
-/// Page 2: how many tokens actually moved, per source.
+/// Page 2: how many tokens actually moved, per source — rendered as a terminal readout.
 ///
 /// Claude Code and Kenari are independent counters — Claude's transcript `usage` blocks are
 /// the only place its tokens exist, and the Kenari/OpenCode report carries its own. Adding
@@ -11,29 +11,38 @@ struct TokenPage: View {
     @ObservedObject var store: UsageStore
     var interactive: Bool = true
 
+    /// Hacker-terminal palette. Green is the primary readout; amber is the only other colour,
+    /// used to tell the two sources apart in the split bar. No rounded fonts anywhere.
+    private enum Term {
+        static let jade = Color(red: 0.30, green: 0.98, blue: 0.45)
+        static let amber = Color(red: 0.98, green: 0.75, blue: 0.28)
+        static let dim = Color(red: 0.30, green: 0.98, blue: 0.45).opacity(0.42)
+        static let faint = Color(red: 0.30, green: 0.98, blue: 0.45).opacity(0.22)
+        static let surface = Color(red: 0.02, green: 0.035, blue: 0.025)
+    }
+
     var body: some View {
         VStack(spacing: 14) {
             totalCard
             sourceCard(
-                title: "Claude Code",
+                title: "claude-code",
                 subtitle: claudeSubtitle,
-                symbol: "terminal.fill",
-                accent: Palette.jade,
+                accent: Term.jade,
                 totals: store.claudeReport?.totals,
                 models: store.claudeReport?.models ?? [],
-                note: store.claudeReport == nil ? "belum ada transkrip untuk rentang ini" : nil
+                note: store.claudeReport == nil ? "no transcript in range" : nil
             )
             sourceCard(
-                title: "Kenari / OpenCode",
+                title: "kenari/opencode",
                 subtitle: store.report?.source.label ?? "—",
-                symbol: "bolt.horizontal.circle.fill",
-                accent: Palette.coral,
+                accent: Term.amber,
                 totals: store.report?.totals,
                 models: store.report?.models ?? [],
-                note: store.report == nil ? "belum ada trafik untuk rentang ini" : nil
+                note: store.report == nil ? "no traffic in range" : nil
             )
             breakdownCard
         }
+        .font(.system(size: 10, design: .monospaced))
     }
 
     // MARK: total
@@ -46,150 +55,156 @@ struct TokenPage: View {
     private var grandTotal: Int { claudeTokens + kenariTokens }
 
     private var totalCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 4) {
+                prompt
+                Text("tokens --total")
+                    .foregroundStyle(Term.dim)
+                Spacer()
+                Text("[\(store.range.label.lowercased())]")
+                    .foregroundStyle(Term.faint)
+            }
+
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(Money.tokens(grandTotal))
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .font(.system(size: 28, weight: .bold, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
-                Text("token")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.slate)
+                    .foregroundStyle(Term.jade)
+                    .shadow(color: Term.jade.opacity(0.5), radius: 4)
+                Text("tok")
+                    .foregroundStyle(Term.dim)
                 Spacer()
-                Text(store.range.label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Palette.slate)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Palette.track))
             }
 
             // One split bar: proportion per source, so the eye reads "who spent what".
             GeometryReader { geo in
                 let total = max(1, grandTotal)
                 HStack(spacing: 2) {
-                    bar(geo.size.width * CGFloat(claudeTokens) / CGFloat(total), Palette.jade)
-                    bar(geo.size.width * CGFloat(kenariTokens) / CGFloat(total), Palette.coral)
+                    bar(geo.size.width * CGFloat(claudeTokens) / CGFloat(total), Term.jade)
+                    bar(geo.size.width * CGFloat(kenariTokens) / CGFloat(total), Term.amber)
                 }
             }
-            .frame(height: 7)
+            .frame(height: 6)
 
             HStack(spacing: 14) {
-                legend("Claude Code", claudeTokens, Palette.jade)
-                legend("Kenari", kenariTokens, Palette.coral)
+                legend("claude", claudeTokens, Term.jade)
+                legend("kenari", kenariTokens, Term.amber)
             }
 
             if let updated = store.lastUpdated {
-                Text("diperbarui \(ago(updated))")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Palette.slate)
+                Text("last sync \(ago(updated))")
+                    .foregroundStyle(Term.faint)
             }
         }
-        .padding(14)
+        .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface()
+        .terminalSurface()
+    }
+
+    private var prompt: some View {
+        Text(">")
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundStyle(Term.dim)
     }
 
     private func bar(_ width: CGFloat, _ color: Color) -> some View {
-        Capsule().fill(width < 1 ? Color.clear : color)
+        Rectangle().fill(width < 1 ? Color.clear : color.opacity(0.85))
             .frame(width: max(0, width))
     }
 
     private func legend(_ name: String, _ value: Int, _ color: Color) -> some View {
         HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(name).font(.system(size: 10)).foregroundStyle(Color.white.opacity(0.8))
+            Rectangle().fill(color).frame(width: 6, height: 6)
+            Text(name).foregroundStyle(color.opacity(0.85))
             Text(Money.tokens(value))
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(color)
         }
     }
 
     private var claudeSubtitle: String {
-        guard let m = store.claudeReport?.models.first else { return "Langganan Claude" }
-        return m.displayName
+        guard let m = store.claudeReport?.models.first else { return "subscription" }
+        return m.displayName.lowercased()
     }
 
     // MARK: per source
 
-    private func sourceCard(title: String, subtitle: String, symbol: String, accent: Color,
+    private func sourceCard(title: String, subtitle: String, accent: Color,
                             totals: UsageTotals?, models: [ModelUsage], note: String?) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .font(.system(size: 15))
-                    .foregroundStyle(accent)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    Text(subtitle).font(.system(size: 10)).foregroundStyle(Palette.slate)
-                }
-                Spacer()
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 4) {
+                prompt
+                Text(title).foregroundStyle(accent)
+                Text("// \(subtitle)")
+                    .foregroundStyle(Term.faint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
                 if let t = totals {
                     Text("\(t.requests) req")
-                        .font(.system(size: 10, weight: .medium))
                         .monospacedDigit()
-                        .foregroundStyle(Palette.slate)
+                        .foregroundStyle(Term.dim)
                 }
             }
 
             if let note {
-                Text(note).font(.system(size: 10)).foregroundStyle(Palette.slate)
+                Text("! \(note)").foregroundStyle(Term.dim)
             } else if let t = totals {
                 HStack(spacing: 8) {
-                    tokenCell("Input", t.inputTokens, accent, emphasis: true)
-                    tokenCell("Output", t.outputTokens, accent, emphasis: true)
-                    tokenCell("Cache baca", t.cacheReadTokens, Palette.slate)
-                    tokenCell("Cache tulis", t.cacheWriteTokens, Palette.slate)
+                    tokenCell("in", t.inputTokens, accent, emphasis: true)
+                    tokenCell("out", t.outputTokens, accent, emphasis: true)
+                    tokenCell("cache-r", t.cacheReadTokens, Term.dim)
+                    tokenCell("cache-w", t.cacheWriteTokens, Term.dim)
                 }
                 // Cache is metered but re-read every turn, so it dwarfs input+output. Say so,
                 // otherwise the header total looks wrong against the card.
                 if t.cacheReadTokens + t.cacheWriteTokens > 0 {
-                    Text("total di atas = input + output; cache tidak dihitung")
-                        .font(.system(size: 8))
-                        .foregroundStyle(Palette.dim)
+                    Text("# total = in + out; cache excluded")
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundStyle(Term.faint)
                 }
                 if !models.isEmpty {
-                    Divider().overlay(Color.white.opacity(0.07)).padding(.top, 2)
+                    Rectangle().fill(Term.faint).frame(height: 1).padding(.top, 2)
                     ForEach(models.prefix(4)) { m in
-                        modelRow(name: m.displayName,
+                        modelRow(name: m.displayName.lowercased(),
                                  tokens: Money.tokens(m.totalTokens),
-                                 reqs: "\(m.requests) req", dim: false)
+                                 reqs: "\(m.requests) req", dim: false, accent: accent)
                     }
                     // Without this the visible model rows do not add up to the card total,
                     // which reads like missing data rather than a truncated list.
                     if models.count > 4 {
                         let rest = models.dropFirst(4)
-                        modelRow(name: "+\(rest.count) model lain",
+                        modelRow(name: "+\(rest.count) more",
                                  tokens: Money.tokens(rest.reduce(0) { $0 + $1.totalTokens }),
-                                 reqs: "", dim: true)
+                                 reqs: "", dim: true, accent: accent)
                     }
                 }
             }
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface()
+        .terminalSurface()
     }
 
     /// Name / value / request count on one row. The req column has a fixed width so the
     /// numbers stack vertically instead of starting at a different x per row.
-    private func modelRow(name: String, tokens: String, reqs: String, dim: Bool) -> some View {
+    private func modelRow(name: String, tokens: String, reqs: String, dim: Bool,
+                          accent: Color) -> some View {
         HStack(spacing: 6) {
             Text(name)
-                .font(.system(size: 10))
-                .foregroundStyle(dim ? Palette.dim : Color.white.opacity(0.85))
+                .foregroundStyle(dim ? Term.faint : accent.opacity(0.8))
                 .lineLimit(1)
             Spacer(minLength: 4)
             Text(tokens)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(dim ? Palette.dim : .white)
+                .foregroundStyle(dim ? Term.dim : accent)
             Text(reqs)
-                .font(.system(size: 9))
+                .font(.system(size: 9, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(Palette.dim)
-                .frame(width: 46, alignment: .trailing)
+                .foregroundStyle(Term.faint)
+                .frame(width: 58, alignment: .trailing)
         }
     }
 
@@ -198,13 +213,13 @@ struct TokenPage: View {
     private func tokenCell(_ label: String, _ value: Int, _ color: Color,
                            emphasis: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.system(size: 9)).foregroundStyle(Palette.dim)
+            Text(label).font(.system(size: 9, design: .monospaced)).foregroundStyle(Term.faint)
             Text(Money.tokens(value))
                 .font(.system(size: emphasis ? 14 : 12,
-                              weight: emphasis ? .semibold : .medium,
-                              design: .rounded))
+                              weight: emphasis ? .semibold : .regular,
+                              design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(emphasis ? color : Color.white.opacity(0.6))
+                .foregroundStyle(emphasis ? color : Term.dim)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -237,42 +252,45 @@ struct TokenPage: View {
 
     private var breakdownCard: some View {
         let points = mergedDaily
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Token harian").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 4) {
+                prompt
+                Text("daily --tokens").foregroundStyle(Term.dim)
                 Spacer()
-                Text(points.isEmpty ? "—" : "\(points.count) hari")
-                    .font(.system(size: 10)).foregroundStyle(Palette.slate)
+                Text(points.isEmpty ? "—" : "\(points.count)d")
+                    .foregroundStyle(Term.faint)
             }
             if points.isEmpty {
-                Text("belum ada data harian").font(.system(size: 10)).foregroundStyle(Palette.slate)
+                Text("! no daily data").foregroundStyle(Term.dim)
             } else {
                 StackedBars(points: points,
                             claude: store.claudeReport?.daily ?? [],
-                            kenari: store.report?.daily ?? [])
+                            kenari: store.report?.daily ?? [],
+                            claudeColor: Term.jade,
+                            kenariColor: Term.amber)
                     .frame(height: 34)
                 HStack(spacing: 12) {
-                    legend("Claude Code", claudeTokens, Palette.jade)
-                    legend("Kenari", kenariTokens, Palette.coral)
+                    legend("claude", claudeTokens, Term.jade)
+                    legend("kenari", kenariTokens, Term.amber)
                 }
                 HStack {
                     Text(shortDay(points.first?.date))
                     Spacer()
                     Text(shortDay(points.last?.date))
                 }
-                .font(.system(size: 9))
-                .foregroundStyle(Palette.slate)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(Term.faint)
             }
         }
-        .padding(14)
+        .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface()
+        .terminalSurface()
     }
 
     private func shortDay(_ d: Date?) -> String {
         guard let d else { return "" }
         let f = DateFormatter()
-        f.dateFormat = "d MMM"
+        f.dateFormat = "dd/MM"
         f.locale = Locale(identifier: "id_ID")
         return f.string(from: d)
     }
@@ -281,9 +299,25 @@ struct TokenPage: View {
     /// update has not happened yet. Below a minute, say the seconds.
     private func ago(_ date: Date) -> String {
         let secs = Int(Date().timeIntervalSince(date))
-        if secs < 60 { return "\(max(0, secs)) detik lalu" }
-        return Duration.id(secs) + " lalu"
+        if secs < 60 { return "\(max(0, secs))s ago" }
+        return Duration.id(secs) + " ago"
     }
+}
+
+/// Near-black card with a phosphor hairline, so the page reads as a terminal pane rather than
+/// a stack of macOS cards.
+private struct TerminalSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(Rectangle().fill(Color(red: 0.02, green: 0.035, blue: 0.025)))
+            .overlay(Rectangle()
+                .strokeBorder(Color(red: 0.30, green: 0.98, blue: 0.45).opacity(0.22),
+                              lineWidth: 1))
+    }
+}
+
+private extension View {
+    func terminalSurface() -> some View { modifier(TerminalSurface()) }
 }
 
 /// Two rows, one per source, each scaled to its own peak.
@@ -296,14 +330,16 @@ struct StackedBars: View {
     let points: [DailyPoint]
     let claude: [DailyPoint]
     let kenari: [DailyPoint]
+    var claudeColor: Color = Palette.jade
+    var kenariColor: Color = Palette.coral
 
     var body: some View {
         let keys = points.map { DayKey.string($0.date) }
         let c = series(claude, keys: keys)
         let k = series(kenari, keys: keys)
         return VStack(alignment: .leading, spacing: 3) {
-            row(c, color: Palette.jade)
-            row(k, color: Palette.coral)
+            row(c, color: claudeColor)
+            row(k, color: kenariColor)
         }
     }
 
@@ -317,8 +353,8 @@ struct StackedBars: View {
         let maxVal = max(1, values.max() ?? 1)
         return HStack(alignment: .bottom, spacing: values.count > 14 ? 2 : 3) {
             ForEach(Array(values.enumerated()), id: \.offset) { _, v in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(v > 0 ? color.opacity(0.85) : Palette.track)
+                Rectangle()
+                    .fill(v > 0 ? color.opacity(0.85) : color.opacity(0.10))
                     .frame(height: max(1.5, CGFloat(v) / CGFloat(maxVal) * 13))
                     .frame(maxWidth: .infinity)
             }

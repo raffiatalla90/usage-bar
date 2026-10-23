@@ -164,19 +164,32 @@ struct PopoverView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 5, height: 5)
-                Text(store.connection.message)
+                    .opacity(store.isRefreshing ? 1 : 0.9)
+                    .scaleEffect(store.isRefreshing ? 1.0 : 0.85)
+                    .animation(store.isRefreshing
+                               ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true)
+                               : .default,
+                               value: store.isRefreshing)
+                Text(store.isRefreshing ? "menghubungi…" : store.connection.message)
                     .font(.system(size: 9.5))
                     .foregroundStyle(Palette.dim)
                     .lineLimit(1)
             }
             .help(store.connection.message)
 
+            // Spins while a probe is in flight, so "still working" and "no answer yet" are
+            // different pictures instead of both being a dead button.
             Button {
                 Task { await store.refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(store.isRefreshing ? Palette.dim : Palette.slate)
+                    .foregroundStyle(store.isRefreshing ? Palette.jade : Palette.slate)
+                    .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
+                    .animation(store.isRefreshing
+                               ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                               : .default,
+                               value: store.isRefreshing)
             }
             .buttonStyle(.plain)
             .help("Refresh now")

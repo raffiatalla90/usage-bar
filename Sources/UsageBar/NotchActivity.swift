@@ -226,7 +226,7 @@ final class NotchActivityController {
     /// One wing, on the right only. A left wing sat on top of the last left-hand menu-bar item
     /// (Bantuan), because the left auxiliary area ends exactly where the housing starts. 92 pt is
     /// the narrowest width that still fits "> a1b2c3█" plus the counter without clipping.
-    private let wing: CGFloat = 92
+    private let wing: CGFloat = 68
     private var notchWidth: CGFloat = 185
     private var notchHeight: CGFloat = 34
 
@@ -396,48 +396,18 @@ struct NotchView: View {
         HStack(spacing: 0) {
             Color.black.frame(width: notchWidth)
 
-            // 0.16 s while working (a decrypting terminal), 0.12 s while idle: the hex stream
-            // moves one glyph per tick, so idle needs the faster cadence to look alive.
-            TimelineView(.periodic(from: .distantPast,
-                                   by: watcher.isBusy ? 0.16 : 0.12)) { timeline in
-                let frame = Int(timeline.date.timeIntervalSinceReferenceDate
-                                / (watcher.isBusy ? 0.16 : 0.12))
+            // One cadence, one animation: the prompt decrypts "live" out of glyph noise and
+            // repeats forever, working or not. No counter on the right — the strip is a status
+            // light, not a dashboard.
+            TimelineView(.periodic(from: .distantPast, by: 0.16)) { timeline in
+                let frame = Int(timeline.date.timeIntervalSinceReferenceDate / 0.16)
                 HStack(spacing: 4) {
-                    if watcher.isBusy {
-                        ZStack {
-                            Circle().fill(Term.jade.opacity(0.20))
-                                .frame(width: 12, height: 12)
-                                .scaleEffect(frame % 4 < 2 ? 1.0 : 0.55)
-                                .opacity(frame % 4 < 2 ? 0.10 : 0.70)
-                            Circle()
-                                .fill(Term.jade)
-                                .frame(width: 5, height: 5)
-                                .opacity(frame % 2 == 0 ? 1.0 : 0.40)
-                        }
-                    }
-                    // Hacker terminal: a prompt, then either the word decrypting out of glyph
-                    // noise (working) or a hex dump streaming one glyph per frame (idle).
                     Text(">")
                         .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                         .foregroundStyle(Term.prompt)
-                    if watcher.isBusy {
-                        terminalLabel(Self.decrypt("live", frame: frame), core: Term.jade)
-                        cursor(frame: frame)
-                    } else {
-                        // Newest glyph bright, tail dim: the moving head is what reads as an
-                        // active dump rather than a static string.
-                        let hex = HexTicker.line(frame: frame / 2, count: 5)
-                        HStack(spacing: 0) {
-                            terminalLabel(String(hex.dropLast()), core: Term.jade.opacity(0.40))
-                            terminalLabel(String(hex.suffix(1)), core: Term.jade)
-                        }
-                        cursor(frame: frame, steady: false)
-                    }
+                    terminalLabel(Self.decrypt("live", frame: frame), core: Term.jade)
+                    cursor(frame: frame, steady: watcher.isBusy)
                     Spacer(minLength: 0)
-                    Text(compact(watcher.todayCount))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(Term.jade)
                 }
                 .padding(.horizontal, 12)
             }
@@ -517,11 +487,6 @@ struct NotchView: View {
             }
         }
         .allowsHitTesting(false)
-    }
-
-    /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
-    private func compact(_ n: Int) -> String {
-        n < 1000 ? "\(n)" : String(format: "%.1fk", Double(n) / 1000)
     }
 
     // MARK: Expanded
