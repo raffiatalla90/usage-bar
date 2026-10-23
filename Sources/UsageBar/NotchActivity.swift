@@ -422,11 +422,15 @@ struct NotchView: View {
                         Text(">")
                             .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                             .foregroundStyle(Term.prompt)
-                        // Idle types a word, holds it, deletes it, moves to the next. This is the
-                        // animation that was missing: the strip is doing something, not just lit.
-                        let typed = IdleTyper.state(words: Self.idleWords, frame: frame)
-                        terminalLabel(typed.text, core: Color.white.opacity(0.55))
-                        cursor(frame: frame, steady: !typed.typing)
+                        // Idle: a hex dump streaming one glyph per frame, never stopping. The
+                        // newest glyph is bright, the rest fade behind it — that moving head is
+                        // what makes the strip look like it is actively dumping memory.
+                        let hex = HexTicker.line(frame: frame / 2, count: 7)
+                        HStack(spacing: 0) {
+                            terminalLabel(String(hex.dropLast()), core: Term.jade.opacity(0.40))
+                            terminalLabel(String(hex.suffix(1)), core: Term.jade)
+                        }
+                        cursor(frame: frame, steady: false)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -468,7 +472,6 @@ struct NotchView: View {
 
     /// Words idle cycles through. Short on purpose: the wing is ~74 pt, so anything past six
     /// characters starts crowding the counter on the right.
-    private static let idleWords = ["idle", "siap", "standby", "nganggur", "menunggu"]
 
     /// Characters a decrypting terminal shows before a glyph resolves. Deterministic per
     /// frame/key so a re-render of the same frame is identical (the renderer captures stills).
