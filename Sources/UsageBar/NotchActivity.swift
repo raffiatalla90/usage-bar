@@ -403,14 +403,19 @@ struct NotchView: View {
                             .frame(width: 5.5, height: 5.5)
                             .opacity(watcher.isBusy ? (frame % 2 == 0 ? 1.0 : 0.45) : 0.55)
                     }
-                    // Decrypt effect: live spells itself out character by character from noise,
-                    // idle types once then holds a still cursor.
-                    Text(Self.decrypt(watcher.isBusy ? "live" : "diam", frame: frame))
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(watcher.isBusy ? Ink.live : Ink.faint)
-                        .lineLimit(1)
-                        .fixedSize()
-                    cursor(frame: frame, active: watcher.isBusy)
+                    // Decrypt effect: live spells itself out character by character from noise.
+                    // Idle shows a content skeleton instead of a word — the strip reads as
+                    // "panel still loading" rather than as a dead label.
+                    if watcher.isBusy {
+                        Text(Self.decrypt("live", frame: frame))
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Ink.live)
+                            .lineLimit(1)
+                            .fixedSize()
+                        cursor(frame: frame)
+                    } else {
+                        skeleton(frame: frame)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 13)
@@ -463,14 +468,29 @@ struct NotchView: View {
         return out
     }
 
-    /// Block cursor. Blinks fast while working, breathes slowly while idle: the rhythm alone
-    /// says whether the agent is writing or merely waiting for input.
+    /// Block cursor for the live state. Blinks fast: the rhythm alone says the agent is writing.
     @ViewBuilder
-    private func cursor(frame: Int, active: Bool) -> some View {
-        let on = active ? (frame % 6 < 3) : (frame % 20 < 6)
+    private func cursor(frame: Int) -> some View {
+        let on = frame % 6 < 3
         RoundedRectangle(cornerRadius: 0.5)
-            .fill((active ? Ink.live : Ink.faint).opacity(on ? 0.95 : 0.12))
+            .fill(Ink.live.opacity(on ? 0.95 : 0.12))
             .frame(width: 3.5, height: 8)
+    }
+
+    /// Idle state: three placeholder bars instead of the word "diam". A highlight walks
+    /// left-to-right on a 4-step cycle, so the strip still moves at 0.8 s but reads as a
+    /// loading skeleton, never as a live flicker.
+    private func skeleton(frame: Int) -> some View {
+        let phase = frame % 4
+        return HStack(spacing: 3) {
+            ForEach(Array([12.0, 16.0, 8.0].enumerated()), id: \.offset) { index, width in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.white.opacity(phase == index ? 0.52 : 0.18))
+                    .frame(width: width, height: 4)
+            }
+        }
+        .frame(height: 9)
+        .fixedSize()
     }
 
     /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
