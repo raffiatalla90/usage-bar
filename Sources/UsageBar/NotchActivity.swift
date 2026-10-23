@@ -370,10 +370,11 @@ struct NotchView: View {
         static let live = Color(red: 0.42, green: 0.93, blue: 0.62)
     }
 
-    /// Cyberpunk palette for the collapsed strip: neon cyan core, magenta chromatic split.
-    private enum Neon {
-        static let cyan = Color(red: 0.10, green: 0.95, blue: 1.00)
-        static let magenta = Color(red: 1.00, green: 0.12, blue: 0.74)
+    /// Hacker-terminal palette: one phosphor green on black. No second accent — a real
+    /// terminal never had one, and two neons is what made the strip read as a toy.
+    private enum Term {
+        static let jade = Color(red: 0.30, green: 0.98, blue: 0.45)
+        static let prompt = Color(red: 0.30, green: 0.98, blue: 0.45).opacity(0.55)
     }
 
     var body: some View {
@@ -395,27 +396,34 @@ struct NotchView: View {
                                    by: watcher.isBusy ? 0.16 : 0.24)) { timeline in
                 let frame = Int(timeline.date.timeIntervalSinceReferenceDate
                                 / (watcher.isBusy ? 0.16 : 0.24))
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     if watcher.isBusy {
                         ZStack {
-                            Circle().fill(Neon.cyan.opacity(0.22))
-                                .frame(width: 13, height: 13)
+                            Circle().fill(Term.jade.opacity(0.20))
+                                .frame(width: 12, height: 12)
                                 .scaleEffect(frame % 4 < 2 ? 1.0 : 0.55)
-                                .opacity(frame % 4 < 2 ? 0.12 : 0.75)
+                                .opacity(frame % 4 < 2 ? 0.10 : 0.70)
                             Circle()
-                                .fill(Neon.cyan)
-                                .frame(width: 5.5, height: 5.5)
-                                .opacity(frame % 2 == 0 ? 1.0 : 0.45)
+                                .fill(Term.jade)
+                                .frame(width: 5, height: 5)
+                                .opacity(frame % 2 == 0 ? 1.0 : 0.40)
                         }
                     }
-                    // Cyberpunk: chromatic-aberration text (magenta/cyan ghosts around a white
-                    // core) with a deterministic 1-frame slice jitter. Live decrypts itself out
-                    // of glyph noise; idle holds the word and only glitches.
+                    // Hacker terminal: a prompt, the word decrypting out of glyph noise, and a
+                    // block cursor. Nothing else — the whole point is that it looks like a
+                    // shell someone left open, not like a neon sign.
                     if watcher.isBusy {
-                        glitchLabel(Self.decrypt("LIVE", frame: frame), frame: frame, core: Neon.cyan)
+                        Text(">")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Term.prompt)
+                        terminalLabel(Self.decrypt("live", frame: frame), core: Term.jade)
                         cursor(frame: frame)
                     } else {
-                        glitchLabel("IDLE", frame: frame, core: Color.white.opacity(0.62))
+                        Text(">")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Term.prompt)
+                        terminalLabel("idle", core: Color.white.opacity(0.55))
+                        cursor(frame: frame, idle: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -426,12 +434,12 @@ struct NotchView: View {
 
             HStack(spacing: 4) {
                 Text(compact(watcher.todayCount))
-                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(Ink.text)
+                    .foregroundStyle(Term.jade)
                 Text("berkas")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .foregroundStyle(Ink.faint)
+                    .font(.system(size: 9, weight: .regular, design: .monospaced))
+                    .foregroundStyle(Term.jade.opacity(0.45))
             }
             // The wing is ~74 pt wide; "162 berkas" is wider than that at these sizes, so the
             // count used to wrap into "16" / "2". One line, allowed to shrink instead.
@@ -444,11 +452,10 @@ struct NotchView: View {
         .frame(height: notchHeight)
         .background(alignment: .topLeading) { scanlines() }
         .overlay(alignment: .topLeading) {
-            // Own timeline: the sweep needs a frame number, and the label's is scoped to the
-            // inner TimelineView. Same 0.16 s cadence keeps them in step.
+            // Own timeline: the flicker needs a frame number, and the label's is scoped to the
+            // inner TimelineView. Same cadence keeps them in step.
             TimelineView(.periodic(from: .distantPast, by: 0.16)) { timeline in
-                crtSweep(frame: Int(timeline.date.timeIntervalSinceReferenceDate / 0.16),
-                         width: notchWidth + 148)
+                phosphorFlicker(frame: Int(timeline.date.timeIntervalSinceReferenceDate / 0.16))
             }
         }
         .background(Color.black)
@@ -478,34 +485,31 @@ struct NotchView: View {
         return out
     }
 
-    /// Block cursor for the live state. Blinks fast: the rhythm alone says the agent is writing.
-    private func cursor(frame: Int) -> some View {
-        let on = frame % 6 < 3
+    /// Block cursor. Fast blink while working, slow while idle.
+    private func cursor(frame: Int, idle: Bool = false) -> some View {
+        let on = idle ? (frame % 5 < 2) : (frame % 6 < 3)
         return RoundedRectangle(cornerRadius: 0.5)
-            .fill(Neon.cyan.opacity(on ? 0.95 : 0.10))
+            .fill((idle ? Color.white.opacity(0.35) : Term.jade).opacity(on ? 0.95 : 0.08))
             .frame(width: 3.5, height: 8)
     }
 
-    /// Cyberpunk label: the glyph is drawn three times, magenta shifted left, cyan shifted
-    /// right, white core on top — chromatic aberration, the cheapest read of "neon sign with a
-    /// bad signal". Every 11th frame the core also jumps 1 pt sideways (slice jitter) and the
-    /// ghosts widen, so the strip visibly glitches without ever moving fast enough to look busy.
-    private func glitchLabel(_ text: String, frame: Int, core: Color) -> some View {
-        let glitching = frame % 11 == 0
-        let ghost: CGFloat = glitching ? 1.6 : 0.7
-        let jitter: CGFloat = glitching ? (frame % 22 < 11 ? 1 : -1) : 0
+    /// Terminal text: one monospace weight, phosphor green, plus a faint bloom so it reads as
+    /// light on glass rather than flat fill. No ghosts, no jitter — a terminal does not glitch,
+    /// it just sits there glowing.
+    private func terminalLabel(_ text: String, core: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            .foregroundStyle(core)
+            .shadow(color: core.opacity(0.65), radius: 2.5)
+            .lineLimit(1)
+            .fixedSize()
+    }
 
-        return ZStack {
-            Text(text).foregroundStyle(Neon.magenta.opacity(glitching ? 0.95 : 0.55))
-                .offset(x: -ghost)
-            Text(text).foregroundStyle(Neon.cyan.opacity(glitching ? 0.95 : 0.55))
-                .offset(x: ghost)
-            Text(text).foregroundStyle(core)
-                .offset(x: jitter)
-        }
-        .font(.system(size: 9.5, weight: .heavy, design: .monospaced))
-        .lineLimit(1)
-        .fixedSize()
+    /// Phosphor flicker: the whole strip dips ~4% brightness once every 11 frames. Invisible
+    /// as a step, but it is the difference between a printed strip and a lit one.
+    private func phosphorFlicker(frame: Int) -> some View {
+        Color.black.opacity(frame % 11 == 0 ? 0.05 : 0)
+            .allowsHitTesting(false)
     }
 
     /// CRT texture: static 1 pt scanlines every 3 pt, spanning the whole strip. Very low
@@ -513,25 +517,10 @@ struct NotchView: View {
     private func scanlines() -> some View {
         VStack(spacing: 2) {
             ForEach(0..<12, id: \.self) { _ in
-                Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1)
+                Rectangle().fill(Term.jade.opacity(0.05)).frame(height: 1)
             }
         }
         .allowsHitTesting(false)
-    }
-
-    /// One bright cyan line sweeping top-to-bottom across the full width and wrapping. This is
-    /// the piece that reads as "cyberpunk display" — the motion lives at the panel edge, so the
-    /// label stays legible at 9.5 pt.
-    private func crtSweep(frame: Int, width: CGFloat) -> some View {
-        let y = CGFloat(frame % 16) / 16 * (notchHeight + 2) - 1
-        return Rectangle()
-            .fill(LinearGradient(colors: [Neon.cyan.opacity(0.05), Neon.cyan.opacity(0.85), Neon.cyan.opacity(0.05)],
-                                 startPoint: .leading, endPoint: .trailing))
-            .frame(width: width, height: 1.5)
-            .offset(y: y)
-            .shadow(color: Neon.cyan.opacity(0.9), radius: 3)
-            .blendMode(.plusLighter)
-            .allowsHitTesting(false)
     }
 
     /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
