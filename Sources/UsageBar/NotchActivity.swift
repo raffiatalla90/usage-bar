@@ -390,21 +390,20 @@ struct NotchView: View {
                 let frame = Int(timeline.date.timeIntervalSinceReferenceDate
                                 / (watcher.isBusy ? 0.16 : 0.40))
                 HStack(spacing: 5) {
-                    ZStack {
-                        if watcher.isBusy {
+                    if watcher.isBusy {
+                        ZStack {
                             Circle().fill(Ink.live.opacity(0.20))
                                 .frame(width: 13, height: 13)
                                 .scaleEffect(frame % 4 < 2 ? 1.0 : 0.55)
                                 .opacity(frame % 4 < 2 ? 0.12 : 0.7)
+                            Circle()
+                                .fill(Ink.live)
+                                .frame(width: 5.5, height: 5.5)
+                                .opacity(frame % 2 == 0 ? 1.0 : 0.45)
                         }
-                        Circle()
-                            .fill(watcher.isBusy ? Ink.live : Color.white.opacity(0.22))
-                            .frame(width: 5.5, height: 5.5)
-                            .opacity(watcher.isBusy ? (frame % 2 == 0 ? 1.0 : 0.45) : 0.55)
                     }
-                    // Decrypt effect: live spells itself out character by character from noise.
-                    // Idle shows a content skeleton instead of a word — the strip reads as
-                    // "panel still loading" rather than as a dead label.
+                    // Live: decrypting text plus a fast-blink cursor. Idle: braille spinner +
+                    // `standby` + a slow cursor, the idiom every terminal already uses.
                     if watcher.isBusy {
                         Text(Self.decrypt("live", frame: frame))
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -413,7 +412,12 @@ struct NotchView: View {
                             .fixedSize()
                         cursor(frame: frame)
                     } else {
-                        rain(frame: frame)
+                        spinnerView(frame: frame)
+                        Text("standby")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Color.white.opacity(0.34))
+                            .lineLimit(1)
+                            .fixedSize()
                         cursor(frame: frame, dim: true)
                     }
                 }
@@ -477,42 +481,15 @@ struct NotchView: View {
             .frame(width: 3.5, height: 8)
     }
 
-    /// Idle: a miniature digital-rain block. Five narrow columns scroll downward, each at its
-    /// own speed, one bright jade head per column with dim glyphs behind it. Reads as a
-    /// terminal left running rather than a dead label, and never at live's speed.
-    /// Five columns (not seven) so the 74 pt wing never clips the last column.
-    private func rain(frame: Int) -> some View {
-        let columns = 5
-        let rows = 3
-        return HStack(spacing: 1.5) {
-            ForEach(0..<columns, id: \.self) { c in
-                let head = Self.rainHead(col: c, frame: frame, rows: rows)
-                VStack(spacing: 0) {
-                    ForEach(0..<rows, id: \.self) { r in
-                        Text(Self.rainGlyph(col: c, row: r, frame: frame))
-                            .font(.system(size: 5.5, weight: .bold, design: .monospaced))
-                            .foregroundStyle(r == head ? Ink.live.opacity(0.90)
-                                                      : Color.white.opacity(0.15))
-                    }
-                }
-            }
-        }
-        .frame(height: 17)
-        .fixedSize()
-    }
-
-    /// Head position inside a column, walking down one row per `speed` frames.
-    private static func rainHead(col: Int, frame: Int, rows: Int) -> Int {
-        let speed = 1 + (col &* 7 &+ 3) % 3
-        return (frame / speed &+ col &* 2) % rows
-    }
-
-    /// Deterministic glyph for one rain cell, so `--render-notch` stills are reproducible.
-    private static func rainGlyph(col: Int, row: Int, frame: Int) -> String {
-        let speed = 1 + (col &* 7 &+ 3) % 3
-        let step = frame / speed &+ col &* 13
-        let seed = UInt64(bitPattern: Int64(step &* 31 &+ row &* 7 &+ col &* 17))
-        return String(glyphPool[Int(seed % UInt64(glyphPool.count))])
+    /// Idle: a braille spinner plus the word `standby`. One glyph rotating on a slow cadence
+    /// reads as a terminal that is alive but has nothing to do — the same idiom `npm`, `cargo`
+    /// and `htop` use, so it is legible at 9 pt where a 5-column glyph block was just noise.
+    private func spinnerView(frame: Int) -> some View {
+        let frames = Array("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+        return Text(String(frames[(frame / 2) % frames.count]))
+            .font(.system(size: 9.5, weight: .regular, design: .monospaced))
+            .foregroundStyle(Color.white.opacity(0.42))
+            .fixedSize()
     }
 
     /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
