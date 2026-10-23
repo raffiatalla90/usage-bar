@@ -370,6 +370,12 @@ struct NotchView: View {
         static let live = Color(red: 0.42, green: 0.93, blue: 0.62)
     }
 
+    /// Cyberpunk palette for the collapsed strip: neon cyan core, magenta chromatic split.
+    private enum Neon {
+        static let cyan = Color(red: 0.10, green: 0.95, blue: 1.00)
+        static let magenta = Color(red: 1.00, green: 0.12, blue: 0.74)
+    }
+
     var body: some View {
         Group {
             if expanded { panel } else { strip }
@@ -383,42 +389,33 @@ struct NotchView: View {
     /// is the camera housing and stays black so nothing shows through from behind.
     private var strip: some View {
         HStack(spacing: 0) {
-            // 0.16 s while working (a decrypting terminal), 0.40 s while idle: the rain still
-            // falls, but half the frame rate reads as "left running", not as live work.
+            // 0.16 s while working (a decrypting terminal), 0.24 s while idle: idle still ticks
+            // (the glitch has to be visible) but at two-thirds the rate, so "working" reads faster.
             TimelineView(.periodic(from: .distantPast,
-                                   by: watcher.isBusy ? 0.16 : 0.40)) { timeline in
+                                   by: watcher.isBusy ? 0.16 : 0.24)) { timeline in
                 let frame = Int(timeline.date.timeIntervalSinceReferenceDate
-                                / (watcher.isBusy ? 0.16 : 0.40))
+                                / (watcher.isBusy ? 0.16 : 0.24))
                 HStack(spacing: 5) {
                     if watcher.isBusy {
                         ZStack {
-                            Circle().fill(Ink.live.opacity(0.20))
+                            Circle().fill(Neon.cyan.opacity(0.22))
                                 .frame(width: 13, height: 13)
                                 .scaleEffect(frame % 4 < 2 ? 1.0 : 0.55)
-                                .opacity(frame % 4 < 2 ? 0.12 : 0.7)
+                                .opacity(frame % 4 < 2 ? 0.12 : 0.75)
                             Circle()
-                                .fill(Ink.live)
+                                .fill(Neon.cyan)
                                 .frame(width: 5.5, height: 5.5)
                                 .opacity(frame % 2 == 0 ? 1.0 : 0.45)
                         }
                     }
-                    // Live: decrypting text plus a fast-blink cursor. Idle: braille spinner +
-                    // `standby` + a slow cursor, the idiom every terminal already uses.
+                    // Cyberpunk: chromatic-aberration text (magenta/cyan ghosts around a white
+                    // core) with a deterministic 1-frame slice jitter. Live decrypts itself out
+                    // of glyph noise; idle holds the word and only glitches.
                     if watcher.isBusy {
-                        Text(Self.decrypt("live", frame: frame))
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Ink.live)
-                            .lineLimit(1)
-                            .fixedSize()
+                        glitchLabel(Self.decrypt("LIVE", frame: frame), frame: frame, core: Neon.cyan)
                         cursor(frame: frame)
                     } else {
-                        spinnerView(frame: frame)
-                        Text("standby")
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Color.white.opacity(0.34))
-                            .lineLimit(1)
-                            .fixedSize()
-                        cursor(frame: frame, dim: true)
+                        glitchLabel("IDLE", frame: frame, core: Color.white.opacity(0.62))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -445,6 +442,15 @@ struct NotchView: View {
             .padding(.trailing, 12)
         }
         .frame(height: notchHeight)
+        .background(alignment: .topLeading) { scanlines() }
+        .overlay(alignment: .topLeading) {
+            // Own timeline: the sweep needs a frame number, and the label's is scoped to the
+            // inner TimelineView. Same 0.16 s cadence keeps them in step.
+            TimelineView(.periodic(from: .distantPast, by: 0.16)) { timeline in
+                crtSweep(frame: Int(timeline.date.timeIntervalSinceReferenceDate / 0.16),
+                         width: notchWidth + 148)
+            }
+        }
         .background(Color.black)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggle)
@@ -472,24 +478,60 @@ struct NotchView: View {
         return out
     }
 
-    /// Block cursor. Fast blink while working, slow pulse while idle.
-    @ViewBuilder
-    private func cursor(frame: Int, dim: Bool = false) -> some View {
-        let on = dim ? (frame % 5 < 2) : (frame % 6 < 3)
-        RoundedRectangle(cornerRadius: 0.5)
-            .fill((dim ? Color.white.opacity(0.30) : Ink.live).opacity(on ? 0.95 : 0.10))
+    /// Block cursor for the live state. Blinks fast: the rhythm alone says the agent is writing.
+    private func cursor(frame: Int) -> some View {
+        let on = frame % 6 < 3
+        return RoundedRectangle(cornerRadius: 0.5)
+            .fill(Neon.cyan.opacity(on ? 0.95 : 0.10))
             .frame(width: 3.5, height: 8)
     }
 
-    /// Idle: a braille spinner plus the word `standby`. One glyph rotating on a slow cadence
-    /// reads as a terminal that is alive but has nothing to do — the same idiom `npm`, `cargo`
-    /// and `htop` use, so it is legible at 9 pt where a 5-column glyph block was just noise.
-    private func spinnerView(frame: Int) -> some View {
-        let frames = Array("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-        return Text(String(frames[(frame / 2) % frames.count]))
-            .font(.system(size: 9.5, weight: .regular, design: .monospaced))
-            .foregroundStyle(Color.white.opacity(0.42))
-            .fixedSize()
+    /// Cyberpunk label: the glyph is drawn three times, magenta shifted left, cyan shifted
+    /// right, white core on top — chromatic aberration, the cheapest read of "neon sign with a
+    /// bad signal". Every 11th frame the core also jumps 1 pt sideways (slice jitter) and the
+    /// ghosts widen, so the strip visibly glitches without ever moving fast enough to look busy.
+    private func glitchLabel(_ text: String, frame: Int, core: Color) -> some View {
+        let glitching = frame % 11 == 0
+        let ghost: CGFloat = glitching ? 1.6 : 0.7
+        let jitter: CGFloat = glitching ? (frame % 22 < 11 ? 1 : -1) : 0
+
+        return ZStack {
+            Text(text).foregroundStyle(Neon.magenta.opacity(glitching ? 0.95 : 0.55))
+                .offset(x: -ghost)
+            Text(text).foregroundStyle(Neon.cyan.opacity(glitching ? 0.95 : 0.55))
+                .offset(x: ghost)
+            Text(text).foregroundStyle(core)
+                .offset(x: jitter)
+        }
+        .font(.system(size: 9.5, weight: .heavy, design: .monospaced))
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    /// CRT texture: static 1 pt scanlines every 3 pt, spanning the whole strip. Very low
+    /// contrast on purpose — it should read as the panel's surface, not as content.
+    private func scanlines() -> some View {
+        VStack(spacing: 2) {
+            ForEach(0..<12, id: \.self) { _ in
+                Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// One bright cyan line sweeping top-to-bottom across the full width and wrapping. This is
+    /// the piece that reads as "cyberpunk display" — the motion lives at the panel edge, so the
+    /// label stays legible at 9.5 pt.
+    private func crtSweep(frame: Int, width: CGFloat) -> some View {
+        let y = CGFloat(frame % 16) / 16 * (notchHeight + 2) - 1
+        return Rectangle()
+            .fill(LinearGradient(colors: [Neon.cyan.opacity(0.05), Neon.cyan.opacity(0.85), Neon.cyan.opacity(0.05)],
+                                 startPoint: .leading, endPoint: .trailing))
+            .frame(width: width, height: 1.5)
+            .offset(y: y)
+            .shadow(color: Neon.cyan.opacity(0.9), radius: 3)
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
     }
 
     /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
