@@ -390,12 +390,12 @@ struct NotchView: View {
     /// is the camera housing and stays black so nothing shows through from behind.
     private var strip: some View {
         HStack(spacing: 0) {
-            // 0.16 s while working (a decrypting terminal), 0.24 s while idle: idle still ticks
-            // (the glitch has to be visible) but at two-thirds the rate, so "working" reads faster.
+            // 0.16 s while working (a decrypting terminal), 0.12 s while idle: idle types and
+            // deletes a word, which needs a faster tick than the old static label did.
             TimelineView(.periodic(from: .distantPast,
-                                   by: watcher.isBusy ? 0.16 : 0.24)) { timeline in
+                                   by: watcher.isBusy ? 0.16 : 0.12)) { timeline in
                 let frame = Int(timeline.date.timeIntervalSinceReferenceDate
-                                / (watcher.isBusy ? 0.16 : 0.24))
+                                / (watcher.isBusy ? 0.16 : 0.12))
                 HStack(spacing: 4) {
                     if watcher.isBusy {
                         ZStack {
@@ -422,8 +422,11 @@ struct NotchView: View {
                         Text(">")
                             .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                             .foregroundStyle(Term.prompt)
-                        terminalLabel("idle", core: Color.white.opacity(0.55))
-                        cursor(frame: frame, idle: true)
+                        // Idle types a word, holds it, deletes it, moves to the next. This is the
+                        // animation that was missing: the strip is doing something, not just lit.
+                        let typed = IdleTyper.state(words: Self.idleWords, frame: frame)
+                        terminalLabel(typed.text, core: Color.white.opacity(0.55))
+                        cursor(frame: frame, steady: !typed.typing)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -463,6 +466,10 @@ struct NotchView: View {
         .onTapGesture(perform: toggle)
     }
 
+    /// Words idle cycles through. Short on purpose: the wing is ~74 pt, so anything past six
+    /// characters starts crowding the counter on the right.
+    private static let idleWords = ["idle", "siap", "standby", "nganggur", "menunggu"]
+
     /// Characters a decrypting terminal shows before a glyph resolves. Deterministic per
     /// frame/key so a re-render of the same frame is identical (the renderer captures stills).
     private static let glyphPool = Array("01<>/\\|#%&*+=$_")
@@ -485,11 +492,11 @@ struct NotchView: View {
         return out
     }
 
-    /// Block cursor. Fast blink while working, slow while idle.
-    private func cursor(frame: Int, idle: Bool = false) -> some View {
-        let on = idle ? (frame % 5 < 2) : (frame % 6 < 3)
+    /// Block cursor. Solid while a keystroke is in flight, otherwise blinks.
+    private func cursor(frame: Int, steady: Bool = false) -> some View {
+        let on = steady || frame % 6 < 3
         return RoundedRectangle(cornerRadius: 0.5)
-            .fill((idle ? Color.white.opacity(0.35) : Term.jade).opacity(on ? 0.95 : 0.08))
+            .fill((steady ? Term.jade : Color.white.opacity(0.35)).opacity(on ? 0.95 : 0.08))
             .frame(width: 3.5, height: 8)
     }
 
