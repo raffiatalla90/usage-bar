@@ -17,9 +17,10 @@ enum Renderer {
         let items = watcher.items
         var images: [NSImage] = []
         for expanded in [false, true] {
-            let w = expanded ? 420.0 : 333.0
+            let w = expanded ? 420.0 : 277.0
             let h = expanded ? 368.0 : 34.0
             let probe = watcher
+            // 277 = 185 housing + 92 right wing: the collapsed strip has no left wing.
             let view = NotchView(watcher: probe, toggle: {}, forceExpanded: expanded,
                                  notchWidth: 185, notchHeight: 34)
                 .frame(width: w, height: h)

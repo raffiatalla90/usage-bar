@@ -223,7 +223,10 @@ final class NotchActivityController {
 
     private let contentHeight: CGFloat = 336
     private let expandedWidth: CGFloat = 420
-    private let wing: CGFloat = 74
+    /// One wing, on the right only. A left wing sat on top of the last left-hand menu-bar item
+    /// (Bantuan), because the left auxiliary area ends exactly where the housing starts. 92 pt is
+    /// the narrowest width that still fits "> a1b2c3█" plus the counter without clipping.
+    private let wing: CGFloat = 92
     private var notchWidth: CGFloat = 185
     private var notchHeight: CGFloat = 34
 
@@ -248,7 +251,7 @@ final class NotchActivityController {
     }
 
     private func buildPanel() {
-        let size = NSSize(width: notchWidth + wing * 2, height: notchHeight)
+        let size = NSSize(width: notchWidth + wing, height: notchHeight)
         panel = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
@@ -295,8 +298,8 @@ final class NotchActivityController {
             let x = min(max(notch.midX - expandedWidth / 2, 8), screen.frame.maxX - expandedWidth - 8)
             return NSRect(x: x, y: top - h, width: expandedWidth, height: h)
         }
-        let w = notch.width + wing * 2
-        return NSRect(x: notch.minX - wing, y: top - notch.height, width: w, height: notch.height)
+        let w = notch.width + wing
+        return NSRect(x: notch.minX, y: top - notch.height, width: w, height: notch.height)
     }
 
     private func reposition(animated: Bool) {
@@ -386,12 +389,15 @@ struct NotchView: View {
 
     // MARK: Collapsed
 
-    /// Flush black strip welded to the top edge. Wings carry the live state; the middle gap
-    /// is the camera housing and stays black so nothing shows through from behind.
+    /// Flush black strip welded to the top edge. The notch band itself is drawn black so the
+    /// panel silhouette continues the housing; all content lives in the right wing, clear of the
+    /// menu-bar items on the left.
     private var strip: some View {
         HStack(spacing: 0) {
-            // 0.16 s while working (a decrypting terminal), 0.12 s while idle: idle types and
-            // deletes a word, which needs a faster tick than the old static label did.
+            Color.black.frame(width: notchWidth)
+
+            // 0.16 s while working (a decrypting terminal), 0.12 s while idle: the hex stream
+            // moves one glyph per tick, so idle needs the faster cadence to look alive.
             TimelineView(.periodic(from: .distantPast,
                                    by: watcher.isBusy ? 0.16 : 0.12)) { timeline in
                 let frame = Int(timeline.date.timeIntervalSinceReferenceDate
@@ -409,52 +415,32 @@ struct NotchView: View {
                                 .opacity(frame % 2 == 0 ? 1.0 : 0.40)
                         }
                     }
-                    // Hacker terminal: a prompt, the word decrypting out of glyph noise, and a
-                    // block cursor. Nothing else — the whole point is that it looks like a
-                    // shell someone left open, not like a neon sign.
+                    // Hacker terminal: a prompt, then either the word decrypting out of glyph
+                    // noise (working) or a hex dump streaming one glyph per frame (idle).
+                    Text(">")
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Term.prompt)
                     if watcher.isBusy {
-                        Text(">")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Term.prompt)
                         terminalLabel(Self.decrypt("live", frame: frame), core: Term.jade)
                         cursor(frame: frame)
                     } else {
-                        Text(">")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Term.prompt)
-                        // Idle: a hex dump streaming one glyph per frame, never stopping. The
-                        // newest glyph is bright, the rest fade behind it — that moving head is
-                        // what makes the strip look like it is actively dumping memory.
-                        let hex = HexTicker.line(frame: frame / 2, count: 7)
+                        // Newest glyph bright, tail dim: the moving head is what reads as an
+                        // active dump rather than a static string.
+                        let hex = HexTicker.line(frame: frame / 2, count: 5)
                         HStack(spacing: 0) {
                             terminalLabel(String(hex.dropLast()), core: Term.jade.opacity(0.40))
                             terminalLabel(String(hex.suffix(1)), core: Term.jade)
                         }
                         cursor(frame: frame, steady: false)
                     }
+                    Spacer(minLength: 0)
+                    Text(compact(watcher.todayCount))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(Term.jade)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 13)
+                .padding(.horizontal, 12)
             }
-
-            Color.black.frame(width: notchWidth)
-
-            HStack(spacing: 4) {
-                Text(compact(watcher.todayCount))
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(Term.jade)
-                Text("berkas")
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
-                    .foregroundStyle(Term.jade.opacity(0.45))
-            }
-            // The wing is ~74 pt wide; "162 berkas" is wider than that at these sizes, so the
-            // count used to wrap into "16" / "2". One line, allowed to shrink instead.
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-            .fixedSize(horizontal: true, vertical: false)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.trailing, 12)
         }
         .frame(height: notchHeight)
         .background(alignment: .topLeading) { scanlines() }
