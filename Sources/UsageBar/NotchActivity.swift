@@ -383,13 +383,12 @@ struct NotchView: View {
     /// is the camera housing and stays black so nothing shows through from behind.
     private var strip: some View {
         HStack(spacing: 0) {
-            // 0.16 s while working (a decrypting terminal), 0.8 s while idle (only the cursor
-            // breathes). Tying the cadence to state means "diam" costs almost nothing and
-            // reads as genuinely still next to the fast live flicker.
+            // 0.16 s while working (a decrypting terminal), 0.40 s while idle: the rain still
+            // falls, but half the frame rate reads as "left running", not as live work.
             TimelineView(.periodic(from: .distantPast,
-                                   by: watcher.isBusy ? 0.16 : 0.8)) { timeline in
+                                   by: watcher.isBusy ? 0.16 : 0.40)) { timeline in
                 let frame = Int(timeline.date.timeIntervalSinceReferenceDate
-                                / (watcher.isBusy ? 0.16 : 0.8))
+                                / (watcher.isBusy ? 0.16 : 0.40))
                 HStack(spacing: 5) {
                     ZStack {
                         if watcher.isBusy {
@@ -414,7 +413,8 @@ struct NotchView: View {
                             .fixedSize()
                         cursor(frame: frame)
                     } else {
-                        skeleton(frame: frame)
+                        rain(frame: frame)
+                        cursor(frame: frame, dim: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -468,29 +468,51 @@ struct NotchView: View {
         return out
     }
 
-    /// Block cursor for the live state. Blinks fast: the rhythm alone says the agent is writing.
+    /// Block cursor. Fast blink while working, slow pulse while idle.
     @ViewBuilder
-    private func cursor(frame: Int) -> some View {
-        let on = frame % 6 < 3
+    private func cursor(frame: Int, dim: Bool = false) -> some View {
+        let on = dim ? (frame % 5 < 2) : (frame % 6 < 3)
         RoundedRectangle(cornerRadius: 0.5)
-            .fill(Ink.live.opacity(on ? 0.95 : 0.12))
+            .fill((dim ? Color.white.opacity(0.30) : Ink.live).opacity(on ? 0.95 : 0.10))
             .frame(width: 3.5, height: 8)
     }
 
-    /// Idle state: three placeholder bars instead of the word "diam". A highlight walks
-    /// left-to-right on a 4-step cycle, so the strip still moves at 0.8 s but reads as a
-    /// loading skeleton, never as a live flicker.
-    private func skeleton(frame: Int) -> some View {
-        let phase = frame % 4
-        return HStack(spacing: 3) {
-            ForEach(Array([12.0, 16.0, 8.0].enumerated()), id: \.offset) { index, width in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(Color.white.opacity(phase == index ? 0.52 : 0.18))
-                    .frame(width: width, height: 4)
+    /// Idle: a miniature digital-rain block. Five narrow columns scroll downward, each at its
+    /// own speed, one bright jade head per column with dim glyphs behind it. Reads as a
+    /// terminal left running rather than a dead label, and never at live's speed.
+    /// Five columns (not seven) so the 74 pt wing never clips the last column.
+    private func rain(frame: Int) -> some View {
+        let columns = 5
+        let rows = 3
+        return HStack(spacing: 1.5) {
+            ForEach(0..<columns, id: \.self) { c in
+                let head = Self.rainHead(col: c, frame: frame, rows: rows)
+                VStack(spacing: 0) {
+                    ForEach(0..<rows, id: \.self) { r in
+                        Text(Self.rainGlyph(col: c, row: r, frame: frame))
+                            .font(.system(size: 5.5, weight: .bold, design: .monospaced))
+                            .foregroundStyle(r == head ? Ink.live.opacity(0.90)
+                                                      : Color.white.opacity(0.15))
+                    }
+                }
             }
         }
-        .frame(height: 9)
+        .frame(height: 17)
         .fixedSize()
+    }
+
+    /// Head position inside a column, walking down one row per `speed` frames.
+    private static func rainHead(col: Int, frame: Int, rows: Int) -> Int {
+        let speed = 1 + (col &* 7 &+ 3) % 3
+        return (frame / speed &+ col &* 2) % rows
+    }
+
+    /// Deterministic glyph for one rain cell, so `--render-notch` stills are reproducible.
+    private static func rainGlyph(col: Int, row: Int, frame: Int) -> String {
+        let speed = 1 + (col &* 7 &+ 3) % 3
+        let step = frame / speed &+ col &* 13
+        let seed = UInt64(bitPattern: Int64(step &* 31 &+ row &* 7 &+ col &* 17))
+        return String(glyphPool[Int(seed % UInt64(glyphPool.count))])
     }
 
     /// 162 stays readable in a narrow wing; four digits and up collapse to `1.2k`.
